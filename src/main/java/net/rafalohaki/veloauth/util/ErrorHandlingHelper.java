@@ -2,6 +2,7 @@ package net.rafalohaki.veloauth.util;
 
 import com.velocitypowered.api.proxy.Player;
 import net.rafalohaki.veloauth.command.ValidationUtils;
+import net.rafalohaki.veloauth.i18n.Messages;
 import org.slf4j.Logger;
 import org.slf4j.Marker;
 
@@ -26,17 +27,18 @@ public final class ErrorHandlingHelper {
      * @param operationName Name of the operation for error messages
      * @param player        The player to send error message to (can be null)
      * @param throwable     The exception that occurred
+     * @param messages      The i18n messages system
      */
     public static void handleAsyncException(Logger logger, Marker marker,
                                             String operationName, Player player,
-                                            Throwable throwable) {
-        String errorMessage = "Błąd podczas " + operationName + ": " +
+                                            Throwable throwable, Messages messages) {
+        String errorMessage = "Error during " + operationName + ": " +
                 (player != null ? player.getUsername() : StringConstants.UNKNOWN);
 
         logger.error(marker, errorMessage, throwable);
 
         if (player != null) {
-            String userMessage = "Wystąpił błąd podczas " + operationName + ". Spróbuj ponownie.";
+            String userMessage = messages.get("error.database.query");
             PlayerHelper.sendErrorMessage(player, userMessage);
         }
     }
@@ -48,12 +50,13 @@ public final class ErrorHandlingHelper {
      * @param marker        The marker for categorized logging
      * @param operationName Name of the operation
      * @param player        The player involved (can be null)
+     * @param messages      The i18n messages system
      * @return Function to handle exceptions
      */
     public static Function<Throwable, Void> createAsyncExceptionHandler(
-            Logger logger, Marker marker, String operationName, Player player) {
+            Logger logger, Marker marker, String operationName, Player player, Messages messages) {
         return throwable -> {
-            handleAsyncException(logger, marker, operationName, player, throwable);
+            handleAsyncException(logger, marker, operationName, player, throwable, messages);
             return null;
         };
     }
@@ -66,18 +69,18 @@ public final class ErrorHandlingHelper {
      * @param operationName  Name of the database operation
      * @param player         The player to send error to
      * @param e              The exception that occurred
-     * @param userMessageKey The message key from CommandMessages to send to user
+     * @param messages       The i18n messages system
      */
     public static void handleDatabaseError(Logger logger, Marker marker,
                                            String operationName, Player player,
-                                           Exception e, String userMessageKey) {
-        String errorMessage = "Błąd bazy danych podczas " + operationName + ": " +
+                                           Exception e, Messages messages) {
+        String errorMessage = "Database error during " + operationName + ": " +
                 (player != null ? player.getUsername() : StringConstants.UNKNOWN);
 
         logger.error(marker, errorMessage, e);
 
         if (player != null) {
-            player.sendMessage(ValidationUtils.createErrorComponent(userMessageKey));
+            player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
         }
     }
 
@@ -121,13 +124,14 @@ public final class ErrorHandlingHelper {
      * @param marker        The marker for logging
      * @param operationName Name of the operation
      * @param player        The player involved
+     * @param messages      The i18n messages system
      * @return Future with error handling attached
      */
     public static CompletableFuture<Void> withErrorHandling(
             CompletableFuture<Void> future, Logger logger, Marker marker,
-            String operationName, Player player) {
+            String operationName, Player player, Messages messages) {
         return future.exceptionally(
-                createAsyncExceptionHandler(logger, marker, operationName, player)
+                createAsyncExceptionHandler(logger, marker, operationName, player, messages)
         );
     }
 }

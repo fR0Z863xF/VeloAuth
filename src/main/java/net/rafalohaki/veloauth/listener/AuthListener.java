@@ -17,6 +17,7 @@ import net.rafalohaki.veloauth.command.ValidationUtils;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.connection.ConnectionManager;
 import net.rafalohaki.veloauth.database.DatabaseManager;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.premium.PremiumResolution;
 import net.rafalohaki.veloauth.premium.PremiumResolverService;
@@ -57,6 +58,7 @@ public class AuthListener {
     private final Logger logger;
     private final PremiumResolverService premiumResolverService;
     private final DatabaseManager databaseManager;
+    private final Messages messages;
 
     /**
      * Tworzy nowy AuthListener.
@@ -67,6 +69,7 @@ public class AuthListener {
      * @param settings               Ustawienia pluginu
      * @param premiumResolverService Premium resolver service
      * @param databaseManager        Manager bazy danych
+     * @param messages               System wiadomości i18n
      */
     @Inject
     public AuthListener(VeloAuth plugin,
@@ -74,7 +77,8 @@ public class AuthListener {
                         AuthCache authCache,
                         Settings settings,
                         PremiumResolverService premiumResolverService,
-                        DatabaseManager databaseManager) {
+                        DatabaseManager databaseManager,
+                        Messages messages) {
         this.plugin = plugin;
         this.connectionManager = connectionManager;
         this.authCache = authCache;
@@ -82,8 +86,9 @@ public class AuthListener {
         this.logger = plugin.getLogger();
         this.premiumResolverService = premiumResolverService;
         this.databaseManager = databaseManager;
+        this.messages = messages;
 
-        logger.info("AuthListener zarejestrowany");
+        logger.info(messages.get("connection.listener.registered"));
     }
 
     /**
@@ -177,7 +182,7 @@ public class AuthListener {
             premiumUuid = resolution.uuid();
             String canonical = resolution.canonicalUsername() != null ? resolution.canonicalUsername() : username;
             authCache.addPremiumPlayer(canonical, premiumUuid);
-            logger.info("✅ {} potwierdzony jako premium przez {} (UUID: {})", username, resolution.source(), premiumUuid);
+            logger.info(messages.get("player.premium.confirmed"), username, resolution.source(), premiumUuid);
         } else if (resolution.isOffline()) {
             authCache.addPremiumPlayer(username, null);
             logger.debug("{} nie jest premium (resolver: {}, info: {})", username, resolution.source(), resolution.message());
@@ -275,7 +280,7 @@ public class AuthListener {
 
         try {
             if (player.isOnlineMode()) {
-                logger.info(AUTH_MARKER, "✅ {} zweryfikowany online - autoryzacja premium", player.getUsername());
+                logger.info(AUTH_MARKER, messages.get("player.premium.verified"), player.getUsername());
 
                 UUID playerUuid = player.getUniqueId();
                 UUID premiumUuid = Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
@@ -302,7 +307,7 @@ public class AuthListener {
                 return;
             }
 
-            logger.info("Gracz {} nie jest autoryzowany - przenoszenie na PicoLimbo",
+            logger.info(messages.get("player.unauthorized.redirect"),
                     player.getUsername());
 
             // Uruchom w osobnym wątku, aby nie blokować głównego
@@ -310,7 +315,7 @@ public class AuthListener {
                 try {
                     boolean success = connectionManager.transferToPicoLimbo(player);
                     if (success) {
-                        logger.info("Gracz {} pomyślnie przeniesiony na PicoLimbo",
+                        logger.info(messages.get("player.transfer.success"),
                                 player.getUsername());
                     } else {
                         logger.error("❌ Błąd podczas przenoszenia gracza {} na PicoLimbo",
@@ -393,7 +398,7 @@ public class AuthListener {
                         !hasActiveSession ? "brak aktywnej sesji" :
                                 "UUID mismatch";
 
-                logger.warn(SECURITY_MARKER, "🔒 Blokowanie {} do {} ({}) - IP: {}",
+                logger.warn(SECURITY_MARKER, messages.get("player.blocked.unauthorized"),
                         player.getUsername(), targetServerName, reason, playerIp);
 
                 event.setResult(ServerPreConnectEvent.ServerResult.denied());
@@ -439,7 +444,7 @@ public class AuthListener {
 
             // Loguj transfer na backend
             if (!serverName.equals(settings.getPicoLimboServerName())) {
-                logger.info(AUTH_MARKER, "Gracz {} połączył się z serwerem backend: {}",
+                logger.info(AUTH_MARKER, messages.get("player.connected.backend"),
                         player.getUsername(), serverName);
 
                 // Wyślij wiadomość powitalną

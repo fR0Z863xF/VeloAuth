@@ -1,6 +1,7 @@
 package net.rafalohaki.veloauth.util;
 
 import net.rafalohaki.veloauth.database.DatabaseManager;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import org.slf4j.Logger;
 import org.slf4j.Marker;
@@ -26,10 +27,11 @@ public final class DatabaseHelper {
      * @param nickname        The player nickname (case-insensitive)
      * @param logger          Logger for error reporting
      * @param marker          Marker for categorized logging
+     * @param messages        Messages system for i18n
      * @return CompletableFuture containing the player or null if not found
      */
     public static CompletableFuture<RegisteredPlayer> findPlayerByNickname(
-            DatabaseManager databaseManager, String nickname, Logger logger, Marker marker) {
+            DatabaseManager databaseManager, String nickname, Logger logger, Marker marker, Messages messages) {
 
         String lowercaseNick = nickname.toLowerCase();
         return databaseManager.findPlayerByNickname(lowercaseNick)
@@ -43,7 +45,7 @@ public final class DatabaseHelper {
                     return dbResult.getValue();
                 })
                 .exceptionally(throwable -> {
-                    logger.error(marker, "Błąd wyszukiwania gracza: " + lowercaseNick, throwable);
+                    logger.error(marker, messages.get("database.error.finding") + lowercaseNick, throwable);
                     return null;
                 });
     }
@@ -55,10 +57,11 @@ public final class DatabaseHelper {
      * @param player          The player to save
      * @param logger          Logger for error reporting
      * @param marker          Marker for categorized logging
+     * @param messages        Messages system for i18n
      * @return CompletableFuture containing true if successful, false otherwise
      */
     public static CompletableFuture<Boolean> savePlayer(
-            DatabaseManager databaseManager, RegisteredPlayer player, Logger logger, Marker marker) {
+            DatabaseManager databaseManager, RegisteredPlayer player, Logger logger, Marker marker, Messages messages) {
 
         return databaseManager.savePlayer(player)
                 .thenApply(dbResult -> {
@@ -71,7 +74,7 @@ public final class DatabaseHelper {
                     return dbResult.getValue();
                 })
                 .exceptionally(throwable -> {
-                    logger.error(marker, "Błąd zapisu gracza: " + player.getNickname(), throwable);
+                    logger.error(marker, messages.get("database.error.saving") + player.getNickname(), throwable);
                     return false;
                 });
     }
@@ -83,10 +86,11 @@ public final class DatabaseHelper {
      * @param nickname        The player nickname (case-insensitive)
      * @param logger          Logger for error reporting
      * @param marker          Marker for categorized logging
+     * @param messages        Messages system for i18n
      * @return CompletableFuture containing true if successful, false otherwise
      */
     public static CompletableFuture<Boolean> deletePlayer(
-            DatabaseManager databaseManager, String nickname, Logger logger, Marker marker) {
+            DatabaseManager databaseManager, String nickname, Logger logger, Marker marker, Messages messages) {
 
         String lowercaseNick = nickname.toLowerCase();
         return databaseManager.deletePlayer(lowercaseNick)
@@ -100,7 +104,7 @@ public final class DatabaseHelper {
                     return dbResult.getValue();
                 })
                 .exceptionally(throwable -> {
-                    logger.error(marker, "Błąd usuwania gracza: " + lowercaseNick, throwable);
+                    logger.error(marker, messages.get("database.error.deleting") + lowercaseNick, throwable);
                     return false;
                 });
     }
@@ -112,10 +116,11 @@ public final class DatabaseHelper {
      * @param username        The player username
      * @param logger          Logger for error reporting
      * @param marker          Marker for categorized logging
+     * @param messages        Messages system for i18n
      * @return CompletableFuture containing true if premium, false otherwise
      */
     public static CompletableFuture<Boolean> isPremium(
-            DatabaseManager databaseManager, String username, Logger logger, Marker marker) {
+            DatabaseManager databaseManager, String username, Logger logger, Marker marker, Messages messages) {
 
         return databaseManager.isPremium(username)
                 .thenApply(dbResult -> {
@@ -128,7 +133,7 @@ public final class DatabaseHelper {
                     return dbResult.getValue();
                 })
                 .exceptionally(throwable -> {
-                    logger.warn(marker, "Błąd sprawdzania statusu premium dla: " + username, throwable);
+                    logger.warn(marker, messages.get("database.error.checking_premium") + username, throwable);
                     return false; // Default to non-premium on error
                 });
     }
@@ -141,6 +146,7 @@ public final class DatabaseHelper {
      * @param logger          Logger for error reporting
      * @param marker          Marker for categorized logging
      * @param operationName   Name of the operation for logging
+     * @param messages        Messages system for i18n
      * @return CompletableFuture containing the transaction result
      */
     public static CompletableFuture<Boolean> executeTransaction(
@@ -148,11 +154,12 @@ public final class DatabaseHelper {
             Callable<Boolean> operation,
             Logger logger,
             Marker marker,
-            String operationName) {
+            String operationName,
+            Messages messages) {
 
         return databaseManager.executeInTransaction(operation)
                 .exceptionally(throwable -> {
-                    logger.error(marker, "Błąd transakcji: " + operationName, throwable);
+                    logger.error(marker, messages.get("database.error.transaction") + operationName, throwable);
                     return false;
                 });
     }
@@ -165,17 +172,18 @@ public final class DatabaseHelper {
      * @param playerIp        The player's current IP
      * @param logger          Logger for error reporting
      * @param marker          Marker for categorized logging
+     * @param messages        Messages system for i18n
      * @return CompletableFuture containing true if successful, false otherwise
      */
     public static CompletableFuture<Boolean> updatePlayerLoginData(
             DatabaseManager databaseManager, RegisteredPlayer player, String playerIp,
-            Logger logger, Marker marker) {
+            Logger logger, Marker marker, Messages messages) {
 
         try {
             player.updateLoginData(playerIp);
-            return savePlayer(databaseManager, player, logger, marker);
+            return savePlayer(databaseManager, player, logger, marker, messages);
         } catch (Exception e) {
-            logger.error(marker, "Błąd aktualizacji danych logowania gracza: " + player.getNickname(), e);
+            logger.error(marker, messages.get("database.error.updating_login") + player.getNickname(), e);
             return CompletableFuture.completedFuture(false);
         }
     }
@@ -187,13 +195,14 @@ public final class DatabaseHelper {
      * @param marker        Marker for categorized logging
      * @param operationName Name of the operation
      * @param playerName    Player name for context
+     * @param messages        Messages system for i18n
      * @return Function to handle database exceptions
      */
     public static Function<Throwable, Void> createDatabaseErrorHandler(
-            Logger logger, Marker marker, String operationName, String playerName) {
+            Logger logger, Marker marker, String operationName, String playerName, Messages messages) {
 
         return throwable -> {
-            logger.error(marker, "Błąd bazy danych podczas " + operationName + ": " + playerName, throwable);
+            logger.error(marker, messages.get("database.error.operation", operationName, playerName), throwable);
             return null;
         };
     }

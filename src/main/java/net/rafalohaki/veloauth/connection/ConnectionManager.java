@@ -8,6 +8,7 @@ import net.rafalohaki.veloauth.VeloAuth;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.database.DatabaseManager;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import net.rafalohaki.veloauth.util.StringConstants;
@@ -40,6 +41,7 @@ public class ConnectionManager {
     private final AuthCache authCache;
     private final Settings settings;
     private final Logger logger;
+    private final Messages messages;
 
     /**
      * Tworzy nowy ConnectionManager.
@@ -48,16 +50,18 @@ public class ConnectionManager {
      * @param databaseManager Manager bazy danych
      * @param authCache       Cache autoryzacji
      * @param settings        Ustawienia pluginu
+     * @param messages        System wiadomości i18n
      */
     public ConnectionManager(VeloAuth plugin, DatabaseManager databaseManager,
-                             AuthCache authCache, Settings settings) {
+                             AuthCache authCache, Settings settings, Messages messages) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
         this.authCache = authCache;
         this.settings = settings;
         this.logger = plugin.getLogger();
+        this.messages = messages;
 
-        logger.info("ConnectionManager zainicjalizowany - PicoLimbo: {}",
+        logger.info(messages.get("connection.manager.initialized"),
                 settings.getPicoLimboServerName());
     }
 
@@ -230,7 +234,7 @@ public class ConnectionManager {
             }
 
             RegisteredServer targetServer = picoLimboServer.get();
-            logger.info("Próba przeniesienia gracza {} na PicoLimbo", player.getUsername());
+            logger.info(messages.get("player.transfer.attempt"), player.getUsername());
 
             // Asynchroniczne sprawdzenie czy konto istnieje i wyświetlenie odpowiedniego komunikatu
             String lowercaseNick = player.getUsername().toLowerCase();
@@ -287,7 +291,7 @@ public class ConnectionManager {
                     .join();  // Czekaj na zakończenie transferu
 
             if (result.isSuccessful()) {
-                logger.info("✅ Gracz {} pomyślnie przeniesiony na PicoLimbo", player.getUsername());
+                logger.info(messages.get("player.transfer.success"), player.getUsername());
                 return true;
             } else {
                 logger.warn("❌ Transfer {} na PicoLimbo FAILED: {}",
@@ -343,7 +347,7 @@ public class ConnectionManager {
                     NamedTextColor.YELLOW
             ));
 
-            logger.info("Próba przeniesienia gracza {} na serwer {}",
+            logger.info(messages.get("player.transfer.backend.attempt"),
                     player.getUsername(), serverName);
 
             // Wykonaj transfer synchronicznie z timeoutem
@@ -355,7 +359,7 @@ public class ConnectionManager {
                         .isSuccessful();
 
                 if (transferSuccess) {
-                    logger.info("Gracz {} pomyślnie przeniesiony na serwer {}",
+                    logger.info(messages.get("player.transfer.backend.success"),
                             player.getUsername(), serverName);
                     return true;
                 } else {
@@ -476,23 +480,23 @@ public class ConnectionManager {
      * Wyświetla wszystkie zarejestrowane serwery i sprawdza konfigurację PicoLimbo.
      */
     public void debugServers() {
-        logger.info("=== DOSTĘPNE SERWERY ===");
+        logger.info(messages.get("connection.servers.available"));
         plugin.getServer().getAllServers().forEach(server -> {
             String name = server.getServerInfo().getName();
             String address = server.getServerInfo().getAddress().toString();
             logger.info("  - {} ({})", name, address);
         });
-        logger.info("PicoLimbo serwer: {}", settings.getPicoLimboServerName());
+        logger.info(messages.get("connection.picolimbo.server"), settings.getPicoLimboServerName());
 
         // Sprawdź czy PicoLimbo serwer istnieje
         Optional<RegisteredServer> picoLimbo = plugin.getServer()
                 .getServer(settings.getPicoLimboServerName());
 
         if (picoLimbo.isEmpty()) {
-            logger.error("BŁĄD: PicoLimbo serwer '{}' nie istnieje w konfiguracji Velocity!",
+            logger.error(messages.get("connection.picolimbo.error"),
                     settings.getPicoLimboServerName());
         } else {
-            logger.info("✅ PicoLimbo serwer '{}' znaleziony: {}",
+            logger.info(messages.get("connection.picolimbo.found"),
                     settings.getPicoLimboServerName(),
                     picoLimbo.get().getServerInfo().getAddress());
         }

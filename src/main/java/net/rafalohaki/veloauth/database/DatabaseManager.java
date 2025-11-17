@@ -8,6 +8,7 @@ import com.j256.ormlite.misc.TransactionManager;
 import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.support.DatabaseConnection;
 import com.j256.ormlite.table.TableUtils;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.PremiumUuid;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import org.slf4j.Logger;
@@ -37,8 +38,8 @@ public class DatabaseManager {
     /**
      * Stała dla komunikatu o braku połączenia z bazą danych - unikaj duplikacji
      */
-    private static final String DATABASE_NOT_CONNECTED = "Baza danych nie jest połączona";
-    private static final String DATABASE_NOT_CONNECTED_PREMIUM_CHECK = "Baza danych nie jest połączona - nie można sprawdzić premium status dla {}";
+    private static final String DATABASE_NOT_CONNECTED = "Database not connected";
+    private static final String DATABASE_NOT_CONNECTED_PREMIUM_CHECK = "Database not connected - cannot check premium status for {}";
     /**
      * Cache dla często używanych zapytań - ZAWSZE ConcurrentHashMap dla thread-safety.
      */
@@ -51,6 +52,10 @@ public class DatabaseManager {
      * Konfiguracja bazy danych.
      */
     private final DatabaseConfig config;
+    /**
+     * System wiadomości i18n.
+     */
+    private final Messages messages;
     /**
      * Executor z wirtualnymi wątkami dla operacji I/O.
      */
@@ -92,13 +97,15 @@ public class DatabaseManager {
      * Tworzy nowy DatabaseManager.
      *
      * @param config Konfiguracja bazy danych
+     * @param messages System wiadomości i18n
      */
-    public DatabaseManager(DatabaseConfig config) {
+    public DatabaseManager(DatabaseConfig config, Messages messages) {
         if (config == null) {
-            throw new IllegalArgumentException("Config nie może być null");
+            throw new IllegalArgumentException("Config cannot be null");
         }
 
         this.config = config;
+        this.messages = messages;
         this.playerCache = new ConcurrentHashMap<>();
         this.databaseLock = new ReentrantLock();
         this.connected = false;
@@ -108,7 +115,7 @@ public class DatabaseManager {
         this.lastHealthCheckTime = 0;
         this.lastHealthCheckPassed = false;
 
-        logger.info(DB_MARKER, "DatabaseManager utworzony dla typu: {}", config.getStorageType());
+        logger.info(DB_MARKER, messages.get("database.manager.created"), config.getStorageType());
     }
 
     /**
@@ -131,14 +138,14 @@ public class DatabaseManager {
                     // Sprawdź czy używać HikariCP
                     if (config.hasDataSource()) {
                         // Użyj HikariCP DataSource z DatabaseConfig
-                        logger.info(DB_MARKER, "Inicjalizacja z HikariCP connection pooling...");
+                        logger.info(DB_MARKER, messages.get("database.manager.hikari_init"));
                         connectionSource = new DataSourceConnectionSource(config.getDataSource(), config.getJdbcUrl());
 
-                        logger.info(DB_MARKER, "HikariCP pool zainicjalizowany dla typu: {}", config.getStorageType());
+                        logger.info(DB_MARKER, messages.get("database.manager.hikari_ready"), config.getStorageType());
                     } else {
                         // Fallback dla H2/SQLite lub gdy HikariCP nie jest skonfigurowany
                         String jdbcUrl = config.getJdbcUrl();
-                        logger.info(DB_MARKER, "Łączenie z bazą danych (standardowe JDBC): {}", jdbcUrl);
+                        logger.info(DB_MARKER, "Connecting to database (standard JDBC): {}", jdbcUrl);
 
                         connectionSource = new JdbcConnectionSource(
                                 jdbcUrl,
@@ -146,7 +153,7 @@ public class DatabaseManager {
                                 config.getPassword()
                         );
 
-                        logger.info(DB_MARKER, "Standardowe JDBC connection dla typu: {}", config.getStorageType());
+                        logger.info(DB_MARKER, messages.get("database.manager.standard_jdbc"), config.getStorageType());
                     }
 
                     // Tworzenie DAO
@@ -158,7 +165,7 @@ public class DatabaseManager {
                     createTablesIfNotExists();
 
                     connected = true;
-                    logger.info(DB_MARKER, "Pomyślnie połączono z bazą danych typu: {}", config.getStorageType());
+                    logger.info(DB_MARKER, messages.get("database.manager.connected"), config.getStorageType());
                     
                     // Uruchom health checks co 30 sekund
                     startHealthChecks();
@@ -217,7 +224,7 @@ public class DatabaseManager {
             }
         }, 30, 30, TimeUnit.SECONDS); // Start po 30 sekundach, co 30 sekund
         
-        logger.info(DB_MARKER, "Health checks bazy danych uruchomione (co 30 sekund)");
+        logger.info(DB_MARKER, messages.get("database.manager.health_checks_started"));
     }
     
     /**
@@ -236,9 +243,9 @@ public class DatabaseManager {
             lastHealthCheckPassed = healthy;
             
             if (!healthy) {
-                logger.error(DB_MARKER, "❌ Database health check FAILED - połączenie może być niestabilne");
-                // Oznacz jako niepołączoną jeśli health check się nie udał
-                connected = false;
+                logger.warn(DB_MARKER, "❌ Database health check FAILED - connection may be unstable");
+                // Don't set connected=false for single health check failure
+                // Only log warning - HikariCP will handle connection recovery
             } else {
                 logger.debug(DB_MARKER, "✅ Database health check PASSED");
             }
@@ -246,8 +253,9 @@ public class DatabaseManager {
         } catch (Exception e) {
             lastHealthCheckTime = System.currentTimeMillis();
             lastHealthCheckPassed = false;
-            connected = false;
-            logger.error(DB_MARKER, "❌ Database health check FAILED z wyjątkiem: {}", e.getMessage());
+            // Don't set connected=false for health check exceptions
+            // Only log error - HikariCP will handle connection recovery
+            logger.error(DB_MARKER, "❌ Database health check FAILED with exception: {}", e.getMessage());
         }
     }
     
@@ -255,7 +263,7 @@ public class DatabaseManager {
      * Sprawdza czy baza danych jest zdrowa (ostatni health check passed).
      */
     public boolean isHealthy() {
-        return connected && lastHealthCheckPassed;
+        return connected; // Trust HikariCP connection management
     }
     
     /**
@@ -292,7 +300,7 @@ public class DatabaseManager {
                 if (connectionSource != null) {
                     connectionSource.close();
                     connectionSource = null;
-                    logger.info(DB_MARKER, "Połączenie z bazą danych zamknięte");
+                    logger.info(DB_MARKER, messages.get("database.manager.connection_closed"));
                 }
                 connected = false;
                 playerCache.clear();
@@ -409,8 +417,8 @@ public class DatabaseManager {
             }
 
             if (!connected || !isHealthy()) {
-                logger.warn(DB_MARKER, "Baza danych nie jest połączona lub nie jest zdrowa");
-                return DbResult.databaseError("Baza danych nie jest połączona lub nie jest zdrowa");
+                logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED);
+                return DbResult.databaseError(DATABASE_NOT_CONNECTED);
             }
 
             try {
@@ -425,7 +433,7 @@ public class DatabaseManager {
             } catch (SQLException e) {
                 logger.error(DB_MARKER, "Błąd podczas wyszukiwania gracza: " + lowercaseNickname, e);
                 // CRITICAL: Return database error instead of null to prevent bypass
-                return DbResult.databaseError("Błąd bazy danych: " + e.getMessage());
+                return DbResult.databaseError(messages.get("database.error") + ": " + e.getMessage());
             }
         }, dbExecutor);
     }
@@ -441,7 +449,7 @@ public class DatabaseManager {
         return CompletableFuture.supplyAsync(() -> {
             if (!connected) {
                 logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED);
-                return DbResult.databaseError("Baza danych nie jest połączona");
+                return DbResult.databaseError(DATABASE_NOT_CONNECTED);
             }
 
             try {
@@ -453,7 +461,7 @@ public class DatabaseManager {
                 return DbResult.success(success);
             } catch (SQLException e) {
                 logger.error(DB_MARKER, "Błąd podczas zapisywania gracza: " + player.getNickname(), e);
-                return DbResult.databaseError("Błąd bazy danych: " + e.getMessage());
+                return DbResult.databaseError(messages.get("database.error") + ": " + e.getMessage());
             }
         }, dbExecutor);
     }
@@ -469,7 +477,7 @@ public class DatabaseManager {
         return CompletableFuture.supplyAsync(() -> {
             if (!connected) {
                 logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED);
-                return DbResult.databaseError("Baza danych nie jest połączona");
+                return DbResult.databaseError(DATABASE_NOT_CONNECTED);
             }
 
             try {
@@ -485,7 +493,7 @@ public class DatabaseManager {
                 return DbResult.success(false);
             } catch (SQLException e) {
                 logger.error(DB_MARKER, "Błąd podczas usuwania gracza: " + lowercaseNickname, e);
-                return DbResult.databaseError("Błąd bazy danych: " + e.getMessage());
+                return DbResult.databaseError(messages.get("database.error") + ": " + e.getMessage());
             }
         }, dbExecutor);
     }
@@ -501,7 +509,7 @@ public class DatabaseManager {
         return CompletableFuture.supplyAsync(() -> {
             if (!connected) {
                 logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED_PREMIUM_CHECK, username);
-                return DbResult.databaseError("Baza danych nie jest połączona");
+                return DbResult.databaseError(DATABASE_NOT_CONNECTED);
             }
 
             try {
@@ -511,7 +519,7 @@ public class DatabaseManager {
                 return DbResult.success(premium);
             } catch (Exception e) {
                 logger.error(DB_MARKER, "Błąd podczas sprawdzania premium status dla gracza: " + username, e);
-                return DbResult.databaseError("Błąd bazy danych: " + e.getMessage());
+                return DbResult.databaseError(messages.get("database.error") + ": " + e.getMessage());
             }
         }, dbExecutor);
     }
@@ -600,7 +608,7 @@ public class DatabaseManager {
      * Tworzy tabele jeśli nie istnieją.
      */
     private void createTablesIfNotExists() throws SQLException {
-        logger.info("Tworzenie tabel jeśli nie istnieją...");
+        logger.info(messages.get("database.manager.creating_tables"));
 
         // Tworzenie tabeli AUTH
         TableUtils.createTableIfNotExists(connectionSource, RegisteredPlayer.class);
@@ -611,7 +619,7 @@ public class DatabaseManager {
         // Tworzenie indeksów dla wydajności
         createIndexesIfNotExists();
 
-        logger.info("Tabele i indeksy utworzone pomyślnie");
+        logger.info(messages.get("database.manager.tables_created"));
     }
 
     /**
@@ -636,7 +644,7 @@ public class DatabaseManager {
             // H2 i SQLite tworzą indeksy automatycznie dla kluczy obcych
 
         } catch (SQLException e) {
-            logger.warn("Nie udało się utworzyć niektórych indeksów (może już istnieją): {}", e.getMessage());
+            logger.warn(messages.get("database.manager.index_error"), e.getMessage());
         }
     }
 

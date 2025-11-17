@@ -82,7 +82,7 @@ public class CommandHandler {
         commandManager.register(commandManager.metaBuilder("unregister").build(), new UnregisterCommand());
         commandManager.register(commandManager.metaBuilder("vauth").build(), new VAuthCommand());
 
-        logger.info("Komendy zarejestrowane: /login, /register, /changepassword (gracze), /unregister (admin), /vauth (admin)");
+        logger.info(messages.get("connection.commands.registered"));
     }
 
     /**
@@ -123,12 +123,12 @@ public class CommandHandler {
             String[] args = invocation.arguments();
 
             if (!(source instanceof Player player)) {
-                source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.ONLY_PLAYERS));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.player_only")));
                 return;
             }
 
             if (args.length != 1) {
-                player.sendMessage(ValidationUtils.createWarningComponent(CommandMessages.LOGIN_USAGE));
+                player.sendMessage(ValidationUtils.createWarningComponent(messages.get("auth.login.usage")));
                 return;
             }
 
@@ -137,7 +137,7 @@ public class CommandHandler {
             // Sprawdź IP-based rate limiting PRZED sprawdzeniem autoryzacji
             InetAddress playerAddress = ValidationUtils.getPlayerAddress(player);
             if (playerAddress != null && ipRateLimiter.isRateLimited(playerAddress)) {
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.RATE_LIMITED_LOGIN));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.login.too_many_attempts", "5")));
                 logger.warn(SECURITY_MARKER, "IP {} zablokowany za rate limiting ({} prób w 5 min)",
                         playerAddress.getHostAddress(), ipRateLimiter.getAttempts(playerAddress));
                 return;
@@ -148,13 +148,13 @@ public class CommandHandler {
 
             // Sprawdź czy gracz już jest autoryzowany
             if (authCache.isPlayerAuthorized(player.getUniqueId(), ValidationUtils.getPlayerIp(player))) {
-                player.sendMessage(ValidationUtils.createSuccessComponent(CommandMessages.ALREADY_LOGGED_IN));
+                player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.login.already_logged_in")));
                 return;
             }
 
             // Sprawdź brute force
             if (playerAddress != null && authCache.isBlocked(playerAddress)) {
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.BRUTE_FORCE_BLOCKED_GENERIC));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("security.brute_force.blocked")));
                 return;
             }
 
@@ -186,7 +186,7 @@ public class CommandHandler {
 
                 RegisteredPlayer registeredPlayer = dbResult.getValue();
                 if (registeredPlayer == null) {
-                    player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.NOT_REGISTERED));
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.login.not_registered")));
                     return;
                 }
 
@@ -203,7 +203,7 @@ public class CommandHandler {
 
             } catch (Exception e) {
                 logger.error(DB_MARKER, "Błąd podczas logowania gracza: " + player.getUsername(), e);
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.LOGIN_ERROR));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
             }
         }
 
@@ -248,7 +248,7 @@ public class CommandHandler {
                 // Resetuj próby brute force i IP rate limiter po sukcesie
                 resetSecurityCounters(playerAddress);
 
-                player.sendMessage(ValidationUtils.createSuccessComponent(CommandMessages.LOGIN_SUCCESS));
+                player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.login.success")));
                 logger.info(AUTH_MARKER, "Gracz {} zalogował się pomyślnie z IP {} - sesja rozpoczęta",
                         player.getUsername(), ValidationUtils.getPlayerIp(player));
 
@@ -257,7 +257,7 @@ public class CommandHandler {
 
             } catch (Exception e) {
                 logger.error("Błąd podczas przetwarzania udanego logowania: " + player.getUsername(), e);
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.GENERIC_ERROR));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
             }
         }
 
@@ -269,11 +269,11 @@ public class CommandHandler {
             }
 
             if (blocked) {
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.BRUTE_FORCE_BLOCKED));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("security.brute_force.blocked")));
                 logger.warn("Gracz {} zablokowany za brute force z IP {}",
                         player.getUsername(), ValidationUtils.getPlayerIp(player));
             } else {
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.INVALID_PASSWORD));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.login.incorrect_password")));
                 logger.debug("Nieudana próba logowania gracza {} z IP {}",
                         player.getUsername(), ValidationUtils.getPlayerIp(player));
             }
@@ -292,11 +292,11 @@ public class CommandHandler {
             String[] args = invocation.arguments();
 
             if (!(source instanceof Player player)) {
-                source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.ONLY_PLAYERS));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.player_only")));
                 return;
             }
 
-            ValidationUtils.ValidationResult validationResult = ValidationUtils.validateArgumentCount(args, 2, CommandMessages.REGISTER_USAGE);
+            ValidationUtils.ValidationResult validationResult = ValidationUtils.validateArgumentCount(args, 2, messages.get("auth.register.usage"));
             if (!validationResult.valid()) {
                 player.sendMessage(ValidationUtils.createWarningComponent(validationResult.getErrorMessage()));
                 return;
@@ -308,7 +308,7 @@ public class CommandHandler {
             // Sprawdź IP-based rate limiting dla rejestracji
             InetAddress playerAddress = ValidationUtils.getPlayerAddress(player);
             if (playerAddress != null && ipRateLimiter.isRateLimited(playerAddress)) {
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.RATE_LIMITED_REGISTER));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.login.too_many_attempts", "5")));
                 logger.warn("IP {} zablokowany za rate limiting podczas rejestracji ({} prób)",
                         playerAddress.getHostAddress(), ipRateLimiter.getAttempts(playerAddress));
                 return;
@@ -352,7 +352,7 @@ public class CommandHandler {
 
             // DODATKOWE SPRAWDZENIE BRUTE FORCE dla rejestracji
             if (playerAddress != null && authCache.isBlocked(playerAddress)) {
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.BRUTE_FORCE_BLOCKED_GENERIC));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("security.brute_force.blocked")));
                 logger.warn(SECURITY_MARKER, "[BRUTE FORCE BLOCK] IP {} próbował rejestracji",
                         playerAddress.getHostAddress());
                 return;
@@ -377,7 +377,7 @@ public class CommandHandler {
 
                     RegisteredPlayer existingPlayer = existingResult.getValue();
                     if (existingPlayer != null) {
-                        player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.ALREADY_REGISTERED));
+                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.register.already_registered")));
                         return false;
                     }
 
@@ -404,7 +404,7 @@ public class CommandHandler {
                     }
                     
                     if (!saveResult.getValue()) {
-                        player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.REGISTER_ERROR));
+                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
                         logger.error(DB_MARKER, "Nie udało się zapisać nowego gracza: {}", lowercaseNick);
                         return false;
                     }
@@ -415,7 +415,7 @@ public class CommandHandler {
                         ipRateLimiter.reset(playerAddress);
                     }
 
-                    player.sendMessage(ValidationUtils.createSuccessComponent(CommandMessages.REGISTER_SUCCESS));
+                    player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.register.success")));
                     logger.info(AUTH_MARKER, "Gracz {} zarejestrował się z IP {}",
                             player.getUsername(), ValidationUtils.getPlayerIp(player));
 
@@ -443,13 +443,13 @@ public class CommandHandler {
                 }).whenComplete((success, throwable) -> {
                     if (throwable != null) {
                         logger.error("Błąd transakcji rejestracji: " + player.getUsername(), throwable);
-                        player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.REGISTER_ERROR));
+                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
                     }
                 });
 
             } catch (Exception e) {
                 logger.error(DB_MARKER, "Błąd podczas rejestracji gracza: " + player.getUsername(), e);
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.REGISTER_ERROR));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
             }
         }
     }
@@ -466,11 +466,11 @@ public class CommandHandler {
             String[] args = invocation.arguments();
 
             if (!(source instanceof Player player)) {
-                source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.ONLY_PLAYERS));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.player_only")));
                 return;
             }
 
-            ValidationUtils.ValidationResult validationResult = ValidationUtils.validateArgumentCount(args, 2, CommandMessages.CHANGE_PASSWORD_USAGE);
+            ValidationUtils.ValidationResult validationResult = ValidationUtils.validateArgumentCount(args, 2, messages.get("auth.changepassword.usage"));
             if (!validationResult.valid()) {
                 player.sendMessage(ValidationUtils.createWarningComponent(validationResult.getErrorMessage()));
                 return;
@@ -502,7 +502,7 @@ public class CommandHandler {
 
             // DODATKOWE SPRAWDZENIE BRUTE FORCE dla zmiany hasła
             if (playerAddress != null && authCache.isBlocked(playerAddress)) {
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.BRUTE_FORCE_BLOCKED_GENERIC));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("security.brute_force.blocked")));
                 logger.warn(SECURITY_MARKER, "[BRUTE FORCE BLOCK] IP {} próbował zmienić hasło",
                         playerAddress.getHostAddress());
                 return;
@@ -524,7 +524,7 @@ public class CommandHandler {
                 
                 RegisteredPlayer registeredPlayer = dbResult.getValue();
                 if (registeredPlayer == null) {
-                    player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.NOT_REGISTERED));
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.login.not_registered")));
                     return;
                 }
 
@@ -532,7 +532,7 @@ public class CommandHandler {
                 BCrypt.Result result = BCrypt.verifyer().verify(oldPassword.toCharArray(), registeredPlayer.getHash());
 
                 if (!result.verified) {
-                    player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.INVALID_OLD_PASSWORD));
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.changepassword.incorrect_old_password")));
                     return;
                 }
 
@@ -582,23 +582,23 @@ public class CommandHandler {
                             .filter(p -> !p.equals(player))
                             .filter(p -> p.getUsername().equalsIgnoreCase(lowercaseNick))
                             .forEach(p -> {
-                                p.disconnect(ValidationUtils.createWarningComponent(CommandMessages.PASSWORD_CHANGED_DISCONNECT));
+                                p.disconnect(ValidationUtils.createWarningComponent(messages.get("general.kick.message")));
                                 logger.warn("Rozłączono duplikat gracza {} - zmiana hasła z IP {}",
                                         lowercaseNick, ValidationUtils.getPlayerIp(player));
                             });
 
-                    player.sendMessage(ValidationUtils.createSuccessComponent(CommandMessages.PASSWORD_CHANGED_SUCCESS));
+                    player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.changepassword.success")));
                     logger.info(AUTH_MARKER, "Gracz {} zmienił hasło z IP {}",
                             player.getUsername(), ValidationUtils.getPlayerIp(player));
 
                 } else {
-                    player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.PASSWORD_CHANGE_ERROR));
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
                     logger.error(DB_MARKER, "Nie udało się zapisać nowego hasła dla gracza {}", player.getUsername());
                 }
 
             } catch (Exception e) {
                 logger.error(DB_MARKER, "Błąd podczas zmiany hasła gracza: " + player.getUsername(), e);
-                player.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.PASSWORD_CHANGE_ERROR));
+                player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
             }
         }
     }
@@ -616,13 +616,13 @@ public class CommandHandler {
 
             // Sprawdzenie uprawnień administratora
             if (!source.hasPermission("veloauth.admin")) {
-                source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.UNREGISTER_ADMIN_ONLY));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.permission")));
                 return;
             }
 
             // Walidacja argumentów - wymagany nickname
             if (args.length != 1) {
-                source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.UNREGISTER_USAGE));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("admin.unregister.usage")));
                 return;
             }
 
@@ -634,7 +634,7 @@ public class CommandHandler {
                             VirtualThreadExecutorProvider.getVirtualExecutor())
                     .exceptionally(throwable -> {
                         logger.error("Błąd podczas asynchronicznego usuwania konta gracza: " + nickname, throwable);
-                        source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.UNREGISTER_ERROR));
+                        source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
                         return null;
                     });
         }
@@ -693,7 +693,7 @@ public class CommandHandler {
 
                     // Rozłącz gracza jeśli jest online
                     plugin.getServer().getPlayer(nickname).ifPresent(player -> {
-                        player.disconnect(ValidationUtils.createErrorComponent(CommandMessages.ACCOUNT_DELETED_DISCONNECT));
+                        player.disconnect(ValidationUtils.createErrorComponent(messages.get("general.kick.message")));
                         logger.info("Rozłączono gracza {} - usunięcie konta przez admina", nickname);
                     });
 
@@ -702,13 +702,13 @@ public class CommandHandler {
                             source instanceof Player ? ((Player) source).getUsername() : "CONSOLE", nickname);
 
                 } else {
-                    source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.UNREGISTER_ERROR));
+                    source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
                     logger.error(DB_MARKER, "Nie udało się usunąć konta gracza {} przez admina", nickname);
                 }
 
             } catch (Exception e) {
                 logger.error(DB_MARKER, "Błąd podczas admin-usuwania konta gracza: " + nickname, e);
-                source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.UNREGISTER_ERROR));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
             }
         }
     }
@@ -724,7 +724,7 @@ public class CommandHandler {
             String[] args = invocation.arguments();
 
             if (!source.hasPermission("veloauth.admin")) {
-                source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.NO_PERMISSION));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.permission")));
                 return;
             }
 
@@ -739,9 +739,9 @@ public class CommandHandler {
                 case "reload" -> {
                     boolean success = plugin.reloadConfig();
                     if (success) {
-                        source.sendMessage(ValidationUtils.createSuccessComponent(CommandMessages.CONFIG_RELOAD_SUCCESS));
+                        source.sendMessage(ValidationUtils.createSuccessComponent(messages.get("admin.reload.success")));
                     } else {
-                        source.sendMessage(ValidationUtils.createErrorComponent(CommandMessages.CONFIG_RELOAD_ERROR));
+                        source.sendMessage(ValidationUtils.createErrorComponent(messages.get("admin.reload.failed")));
                     }
                 }
                 case "cache-reset" -> {
@@ -751,35 +751,35 @@ public class CommandHandler {
                         plugin.getServer().getPlayer(nickname).ifPresentOrElse(
                                 player -> {
                                     authCache.removeAuthorizedPlayer(player.getUniqueId());
-                                    source.sendMessage(ValidationUtils.createSuccessComponent(String.format(CommandMessages.CACHE_RESET_PLAYER, nickname)));
+                                    source.sendMessage(ValidationUtils.createSuccessComponent(messages.get("admin.cache_reset.player", nickname)));
                                 },
-                                () -> source.sendMessage(ValidationUtils.createErrorComponent(String.format(CommandMessages.PLAYER_NOT_ONLINE, nickname)))
+                                () -> source.sendMessage(ValidationUtils.createErrorComponent(messages.get("admin.cache_reset.player_not_found", nickname)))
                         );
                     } else {
                         authCache.clearAll();
-                        source.sendMessage(ValidationUtils.createSuccessComponent(CommandMessages.CACHE_RESET_ALL));
+                        source.sendMessage(ValidationUtils.createSuccessComponent(messages.get("admin.cache_reset.success")));
                     }
                 }
                 case "stats" -> {
                     var stats = authCache.getStats();
-                    source.sendMessage(ValidationUtils.createWarningComponent(CommandMessages.STATS_HEADER));
-                    source.sendMessage(ValidationUtils.createWarningComponent(String.format(CommandMessages.STATS_AUTHORIZED_PLAYERS, stats.authorizedPlayersCount())));
-                    source.sendMessage(ValidationUtils.createWarningComponent(String.format(CommandMessages.STATS_BRUTE_FORCE_ENTRIES, stats.bruteForceEntriesCount())));
-                    source.sendMessage(ValidationUtils.createWarningComponent(String.format(CommandMessages.STATS_PREMIUM_CACHE, stats.premiumCacheCount())));
-                    source.sendMessage(ValidationUtils.createWarningComponent(String.format(CommandMessages.STATS_CACHE_HIT_RATE, stats.cacheHits(), stats.cacheMisses(), stats.getHitRate())));
-                    source.sendMessage(ValidationUtils.createWarningComponent(String.format(CommandMessages.STATS_TOTAL_REQUESTS, stats.getTotalRequests())));
-                    source.sendMessage(ValidationUtils.createWarningComponent(String.format(CommandMessages.STATS_DATABASE_CONNECTED, databaseManager.isConnected() ? "Połączona" : "Rozłączona")));
-                    source.sendMessage(ValidationUtils.createWarningComponent(String.format(CommandMessages.STATS_DATABASE_CACHE, databaseManager.getCacheSize())));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.header")));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.registered_accounts", stats.authorizedPlayersCount())));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.cache_size", stats.bruteForceEntriesCount())));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.cache_size", stats.premiumCacheCount())));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.database_status", String.format("%.1f%%", stats.getHitRate()))));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.registered_accounts", stats.getTotalRequests())));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.database_status", databaseManager.isConnected() ? messages.get("database.connected") : messages.get("database.disconnected"))));
+                    source.sendMessage(ValidationUtils.createWarningComponent(messages.get("admin.stats.cache_size", databaseManager.getCacheSize())));
                 }
                 default -> sendAdminHelp(source);
             }
         }
 
         private void sendAdminHelp(CommandSource source) {
-            source.sendMessage(ValidationUtils.createWarningComponent(CommandMessages.ADMIN_HELP_HEADER));
-            source.sendMessage(ValidationUtils.createWarningComponent(CommandMessages.ADMIN_HELP_RELOAD));
-            source.sendMessage(ValidationUtils.createWarningComponent(CommandMessages.ADMIN_HELP_CACHE_RESET));
-            source.sendMessage(ValidationUtils.createWarningComponent(CommandMessages.ADMIN_HELP_STATS));
+            source.sendMessage(ValidationUtils.createWarningComponent("=== VeloAuth Admin ==="));
+            source.sendMessage(ValidationUtils.createWarningComponent("/vauth reload - Reload configuration"));
+            source.sendMessage(ValidationUtils.createWarningComponent("/vauth cache-reset [player] - Clear cache"));
+            source.sendMessage(ValidationUtils.createWarningComponent("/vauth stats - Show statistics"));
         }
 
         @Override

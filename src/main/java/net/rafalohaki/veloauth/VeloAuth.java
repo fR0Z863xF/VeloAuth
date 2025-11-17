@@ -92,13 +92,13 @@ public class VeloAuth {
      */
     @Subscribe
     public void onProxyInitialize(ProxyInitializeEvent event) {
-        logger.info("=== VeloAuth v1.0.0 - Inicjalizacja ===");
+        logger.info("=== VeloAuth v1.0.0 - Initialization ===");
 
         // Conditional logging to avoid unnecessary string concatenation
         if (logger.isDebugEnabled()) {
             logger.debug("Java: {}, Virtual Threads: {}",
                     System.getProperty("java.version"),
-                    Thread.currentThread().isVirtual() ? "Dostępne" : "Niedostępne");
+                    Thread.currentThread().isVirtual() ? "Available" : "Unavailable");
         }
 
         // Inicjalizacja asynchroniczna z Virtual Threads
@@ -106,11 +106,11 @@ public class VeloAuth {
         CompletableFuture.runAsync(this::initializePlugin, VirtualThreadExecutorProvider.getVirtualExecutor())
                 .whenComplete((result, throwable) -> {
                     if (throwable != null) {
-                        logger.error("Błąd podczas inicjalizacji VeloAuth", throwable);
+                        logger.error("Error during VeloAuth initialization", throwable);
                         shutdown();
                     } else {
                         initialized = true;
-                        logger.info("=== VeloAuth v1.0.0 - Gotowy do pracy ===");
+                        logger.info(messages.get("plugin.initialization.ready"));
                         logStartupInfo();
                     }
                 });
@@ -121,9 +121,9 @@ public class VeloAuth {
      */
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
-        logger.info("=== VeloAuth - Zamykanie ===");
+        logger.info(messages.get("plugin.initialization.shutdown"));
         shutdown();
-        logger.info("=== VeloAuth - Zamknięty ===");
+        logger.info(messages.get("plugin.initialization.closed"));
     }
 
     /**
@@ -133,21 +133,25 @@ public class VeloAuth {
     private void initializePlugin() {
         try {
             // 1. Ładowanie konfiguracji
-            logger.info("Ładowanie konfiguracji...");
+            logger.info("Loading configuration...");
             settings = new Settings(dataDirectory);
             if (!settings.load()) {
                 throw VeloAuthException.configuration("settings loading", null);
             }
 
             // 2. Inicjalizacja systemu wiadomości (i18n)
-            logger.info("Inicjalizacja systemu wiadomości...");
+            logger.info("Initializing message system...");
             messages = new Messages();
             messages.setLanguage(settings.getLanguage());
 
+            // Now we can use localized messages
+            logger.info(messages.get("plugin.initialization.loading_config"));
+            logger.info(messages.get("plugin.initialization.init_messages"));
+
             // 3. Inicjalizacja bazy danych
-            logger.info("Inicjalizacja bazy danych...");
+            logger.info(messages.get("plugin.initialization.init_database"));
             DatabaseConfig dbConfig = createDatabaseConfig();
-            databaseManager = new DatabaseManager(dbConfig);
+            databaseManager = new DatabaseManager(dbConfig, messages);
 
             boolean dbInitialized = databaseManager.initialize().join();
             if (!dbInitialized) {
@@ -155,7 +159,7 @@ public class VeloAuth {
             }
 
             // 4. Inicjalizacja cache
-            logger.info("Inicjalizacja cache autoryzacji...");
+            logger.info(messages.get("plugin.initialization.init_cache"));
             authCache = new AuthCache(
                     settings.getCacheTtlMinutes(),
                     settings.getCacheMaxSize(),
@@ -164,43 +168,44 @@ public class VeloAuth {
                     settings.getBruteForceMaxAttempts(),
                     settings.getBruteForceTimeoutMinutes(),
                     settings.getCacheCleanupIntervalMinutes(),
-                    settings
+                    settings,
+                    messages
             );
 
             // 5. Inicjalizacja command handler
-            logger.info("Rejestracja komend...");
+            logger.info(messages.get("plugin.initialization.registering_commands"));
             commandHandler = new CommandHandler(this, databaseManager, authCache, settings, messages);
             commandHandler.registerCommands();
 
             // 6. Inicjalizacja connection manager
-            logger.info("Inicjalizacja connection manager...");
-            connectionManager = new ConnectionManager(this, databaseManager, authCache, settings);
+            logger.info(messages.get("plugin.initialization.init_connection_manager"));
+            connectionManager = new ConnectionManager(this, databaseManager, authCache, settings, messages);
 
             // 7. Premium resolver service
-            logger.info("Inicjalizacja premium resolver service...");
+            logger.info(messages.get("plugin.initialization.init_premium_resolver"));
             premiumResolverService = new PremiumResolverService(logger, settings, databaseManager.getPremiumUuidDao());
 
             // 8. Rejestracja event listener
-            logger.info("Rejestracja event listeners...");
-            authListener = new AuthListener(this, connectionManager, authCache, settings, premiumResolverService, databaseManager);
+            logger.info(messages.get("plugin.initialization.registering_listeners"));
+            authListener = new AuthListener(this, connectionManager, authCache, settings, premiumResolverService, databaseManager, messages);
             server.getEventManager().register(this, authListener);
 
             // 9. Debug serwerów (zgodnie z notes.txt)
             connectionManager.debugServers();
 
-            logger.info("Wszystkie komponenty zainicjalizowane pomyślnie");
+            logger.info(messages.get("plugin.initialization.components_ready"));
 
         } catch (IllegalStateException e) {
-            logger.error("Krytyczny błąd stanu podczas inicjalizacji VeloAuth", e);
+            logger.error("Critical state error during VeloAuth initialization", e);
             throw VeloAuthException.configuration("plugin initialization", e);
         } catch (IllegalArgumentException e) {
-            logger.error("Krytyczny błąd argumentów podczas inicjalizacji VeloAuth", e);
+            logger.error("Critical argument error during VeloAuth initialization", e);
             throw VeloAuthException.configuration("invalid arguments", e);
         } catch (VeloAuthException e) {
-            logger.error("Błąd VeloAuth podczas inicjalizacji", e);
+            logger.error("VeloAuth error during initialization", e);
             throw e; // Re-throw our custom exceptions
         } catch (Exception e) {
-            logger.error("Nieoczekiwany błąd podczas inicjalizacji VeloAuth", e);
+            logger.error("Unexpected error during VeloAuth initialization", e);
             throw VeloAuthException.configuration("unexpected error", e);
         }
     }
@@ -298,22 +303,23 @@ public class VeloAuth {
      * Loguje informacje o starcie pluginu.
      */
     private void logStartupInfo() {
-        logger.info("Konfiguracja:");
-        logger.info("  - Baza danych: {} ({})",
+        logger.info(messages.get("config.display.header"));
+        logger.info(messages.get("config.display.database"),
                 settings.getDatabaseStorageType(),
-                databaseManager.isConnected() ? "Połączona" : "Rozłączona");
-        logger.info("  - Cache TTL: {} minut", settings.getCacheTtlMinutes());
-        logger.info("  - Cache Max Size: {}", settings.getCacheMaxSize());
-        logger.info("  - Brute Force: {} prób / {} minut timeout",
+                databaseManager.isConnected() ? messages.get("database.connected") : messages.get("database.disconnected"));
+        logger.info(messages.get("config.display.cache_ttl"), settings.getCacheTtlMinutes());
+        logger.info(messages.get("config.display.cache_max_size"), settings.getCacheMaxSize());
+        logger.info(messages.get("config.display.brute_force"),
                 settings.getBruteForceMaxAttempts(),
                 settings.getBruteForceTimeoutMinutes());
-        logger.info("  - PicoLimbo serwer: {}", settings.getPicoLimboServerName());
-        logger.info("  - BCrypt cost: {}", settings.getBcryptCost());
-        logger.info("  - Premium check: {}", settings.isPremiumCheckEnabled() ? "Włączony" : "Wyłączony");
+        logger.info(messages.get("config.display.picolimbo_server"), settings.getPicoLimboServerName());
+        logger.info(messages.get("config.display.bcrypt_cost"), settings.getBcryptCost());
+        logger.info(messages.get("config.display.premium_check"), 
+                settings.isPremiumCheckEnabled() ? messages.get("premium.check_enabled") : messages.get("premium.check_disabled"));
 
         // Statystyki cache
         var stats = authCache.getStats();
-        logger.info("Cache: {} autoryzowanych, {} brute force, {} premium",
+        logger.info(messages.get("config.display.cache_stats"),
                 stats.authorizedPlayersCount(),
                 stats.bruteForceEntriesCount(),
                 stats.premiumCacheCount());
@@ -326,14 +332,14 @@ public class VeloAuth {
      */
     public boolean reloadConfig() {
         try {
-            logger.info("Przeładowywanie konfiguracji...");
+            logger.info(messages.get("config.reloading"));
 
             if (settings.load()) {
-                logger.info("Konfiguracja przeładowana pomyślnie");
+                logger.info(messages.get("config.reloaded_success"));
                 logStartupInfo();
                 return true;
             } else {
-                logger.error("Nie udało się przeładować konfiguracji");
+                logger.error(messages.get("config.reload_failed"));
                 return false;
             }
 

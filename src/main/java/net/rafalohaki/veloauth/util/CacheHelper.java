@@ -1,6 +1,7 @@
 package net.rafalohaki.veloauth.util;
 
 import net.rafalohaki.veloauth.cache.AuthCache;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import org.slf4j.Logger;
@@ -27,16 +28,17 @@ public final class CacheHelper {
      * @param logger     Logger for cache events
      * @param authMarker Authentication logging marker
      * @param playerName Player name for context
+     * @param messages   Messages system for i18n
      */
     public static void addAuthorizedPlayer(
             AuthCache authCache, UUID playerUuid, CachedAuthUser cachedUser,
-            Logger logger, Marker authMarker, String playerName) {
+            Logger logger, Marker authMarker, String playerName, Messages messages) {
 
         try {
             authCache.addAuthorizedPlayer(playerUuid, cachedUser);
-            logger.debug(authMarker, StringConstants.CACHE_ADD_PLAYER, playerName);
+            logger.debug(authMarker, messages.get("cache.add.player"), playerName);
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.CACHE_ERROR_ADD_PLAYER, playerName, e);
+            logger.error(authMarker, messages.get("cache.error.add.player"), playerName, e);
         }
     }
 
@@ -48,17 +50,18 @@ public final class CacheHelper {
      * @param isPremium        Whether player has premium status
      * @param logger           Logger for cache events
      * @param authMarker       Authentication logging marker
+     * @param messages         Messages system for i18n
      */
     public static void addNewAuthorizedPlayer(
             AuthCache authCache, RegisteredPlayer registeredPlayer, boolean isPremium,
-            Logger logger, Marker authMarker) {
+            Logger logger, Marker authMarker, Messages messages) {
 
         try {
             UUID playerUuid = UUID.fromString(registeredPlayer.getUuid());
             CachedAuthUser cachedUser = CachedAuthUser.fromRegisteredPlayer(registeredPlayer, isPremium);
-            addAuthorizedPlayer(authCache, playerUuid, cachedUser, logger, authMarker, registeredPlayer.getNickname());
+            addAuthorizedPlayer(authCache, playerUuid, cachedUser, logger, authMarker, registeredPlayer.getNickname(), messages);
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.CACHE_ERROR_CREATE_PLAYER, registeredPlayer.getNickname(), e);
+            logger.error(authMarker, messages.get("cache.error.create.player"), registeredPlayer.getNickname(), e);
         }
     }
 
@@ -70,15 +73,16 @@ public final class CacheHelper {
      * @param logger     Logger for cache events
      * @param authMarker Authentication logging marker
      * @param playerName Player name for context
+     * @param messages   Messages system for i18n
      */
     public static void removeAuthorizedPlayer(
-            AuthCache authCache, UUID playerUuid, Logger logger, Marker authMarker, String playerName) {
+            AuthCache authCache, UUID playerUuid, Logger logger, Marker authMarker, String playerName, Messages messages) {
 
         try {
             authCache.removeAuthorizedPlayer(playerUuid);
-            logger.debug(authMarker, StringConstants.CACHE_REMOVE_PLAYER, playerName);
+            logger.debug(authMarker, messages.get("cache.remove.player"), playerName);
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.CACHE_ERROR_REMOVE_PLAYER, playerName, e);
+            logger.error(authMarker, messages.get("cache.error.remove.player"), playerName, e);
         }
     }
 
@@ -91,16 +95,17 @@ public final class CacheHelper {
      * @param playerIp   Player's IP address
      * @param logger     Logger for session events
      * @param authMarker Authentication logging marker
+     * @param messages   Messages system for i18n
      */
     public static void startSession(
             AuthCache authCache, UUID playerUuid, String playerName, String playerIp,
-            Logger logger, Marker authMarker) {
+            Logger logger, Marker authMarker, Messages messages) {
 
         try {
             authCache.startSession(playerUuid, playerName, playerIp);
-            logger.debug(authMarker, StringConstants.SESSION_START, playerName, playerIp);
+            logger.debug(authMarker, messages.get("session.start"), playerName, playerIp);
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.SESSION_ERROR_START, playerName, e);
+            logger.error(authMarker, messages.get("session.error.start"), playerName, e);
         }
     }
 
@@ -112,16 +117,17 @@ public final class CacheHelper {
      * @param playerName Player name for context
      * @param logger     Logger for session events
      * @param authMarker Authentication logging marker
+     * @param messages   Messages system for i18n
      */
     public static void endSession(
             AuthCache authCache, UUID playerUuid, String playerName,
-            Logger logger, Marker authMarker) {
+            Logger logger, Marker authMarker, Messages messages) {
 
         try {
             authCache.endSession(playerUuid);
-            logger.debug(authMarker, StringConstants.SESSION_END, playerName);
+            logger.debug(authMarker, messages.get("session.end"), playerName);
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.SESSION_ERROR_END, playerName, e);
+            logger.error(authMarker, messages.get("session.error.end"), playerName, e);
         }
     }
 
@@ -134,18 +140,19 @@ public final class CacheHelper {
      * @param logger     Logger for cache events
      * @param authMarker Authentication logging marker
      * @param playerName Player name for context
+     * @param messages   Messages system for i18n
      * @return true if authorized, false otherwise
      */
     public static boolean isPlayerAuthorized(
             AuthCache authCache, UUID playerUuid, String playerIp,
-            Logger logger, Marker authMarker, String playerName) {
+            Logger logger, Marker authMarker, String playerName, Messages messages) {
 
         try {
             boolean authorized = authCache.isPlayerAuthorized(playerUuid, playerIp);
-            logger.debug(authMarker, StringConstants.CACHE_CHECK_AUTH, playerName, authorized);
+            logger.debug(authMarker, messages.get("cache.check.auth"), playerName, authorized);
             return authorized;
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.CACHE_ERROR_CHECK_AUTH, playerName, e);
+            logger.error(authMarker, messages.get("cache.error.check.auth"), playerName, e);
             return false;
         }
     }
@@ -157,15 +164,16 @@ public final class CacheHelper {
      * @param playerName Player's username
      * @param logger     Logger for cache events
      * @param authMarker Authentication logging marker
+     * @param messages   Messages system for i18n
      */
     public static void removePremiumPlayer(
-            AuthCache authCache, String playerName, Logger logger, Marker authMarker) {
+            AuthCache authCache, String playerName, Logger logger, Marker authMarker, Messages messages) {
 
         try {
             authCache.removePremiumPlayer(playerName);
-            logger.debug(authMarker, StringConstants.CACHE_REMOVE_PREMIUM, playerName);
+            logger.debug(authMarker, messages.get("cache.remove.premium"), playerName);
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.CACHE_ERROR_REMOVE_PREMIUM, playerName, e);
+            logger.error(authMarker, messages.get("cache.error.remove.premium"), playerName, e);
         }
     }
 
@@ -176,17 +184,18 @@ public final class CacheHelper {
      * @param playerAddress Player's IP address
      * @param logger        Logger for security events
      * @param authMarker    Authentication logging marker
+     * @param messages      Messages system for i18n
      */
     public static void resetBruteForceAttempts(
-            AuthCache authCache, java.net.InetAddress playerAddress, Logger logger, Marker authMarker) {
+            AuthCache authCache, java.net.InetAddress playerAddress, Logger logger, Marker authMarker, Messages messages) {
 
         try {
             if (playerAddress != null) {
                 authCache.resetLoginAttempts(playerAddress);
-                logger.debug(authMarker, StringConstants.BRUTE_FORCE_RESET, playerAddress.getHostAddress());
+                logger.debug(authMarker, messages.get("brute.force.reset"), playerAddress.getHostAddress());
             }
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.CACHE_ERROR_RESET_BRUTE_FORCE, playerAddress != null ? playerAddress.getHostAddress() : StringConstants.UNKNOWN, e);
+            logger.error(authMarker, messages.get("cache.error.reset.brute.force"), playerAddress != null ? playerAddress.getHostAddress() : StringConstants.UNKNOWN, e);
         }
     }
 
@@ -198,21 +207,22 @@ public final class CacheHelper {
      * @param playerName Player name for context
      * @param logger     Logger for cache events
      * @param authMarker Authentication logging marker
+     * @param messages   Messages system for i18n
      */
     public static void completePlayerCleanup(
             AuthCache authCache, UUID playerUuid, String playerName,
-            Logger logger, Marker authMarker) {
+            Logger logger, Marker authMarker, Messages messages) {
 
         try {
             // Remove from authorization cache
-            removeAuthorizedPlayer(authCache, playerUuid, logger, authMarker, playerName);
+            removeAuthorizedPlayer(authCache, playerUuid, logger, authMarker, playerName, messages);
 
             // End active session
-            endSession(authCache, playerUuid, playerName, logger, authMarker);
+            endSession(authCache, playerUuid, playerName, logger, authMarker, messages);
 
-            logger.info(authMarker, StringConstants.CACHE_CLEANUP_COMPLETE, playerName);
+            logger.info(authMarker, messages.get("cache.cleanup.complete"), playerName);
         } catch (Exception e) {
-            logger.error(authMarker, StringConstants.CACHE_ERROR_CLEANUP, playerName, e);
+            logger.error(authMarker, messages.get("cache.error.cleanup"), playerName, e);
         }
     }
 }

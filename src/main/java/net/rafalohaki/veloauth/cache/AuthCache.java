@@ -1,6 +1,7 @@
 package net.rafalohaki.veloauth.cache;
 
 import net.rafalohaki.veloauth.config.Settings;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,6 +113,10 @@ public class AuthCache {
      * Settings dla konfiguracji debug mode.
      */
     private final Settings settings;
+    /**
+     * System wiadomości i18n.
+     */
+    private final Messages messages;
 
     /**
      * Tworzy nowy AuthCache.
@@ -124,29 +129,30 @@ public class AuthCache {
      * @param bruteForceTimeoutMinutes Timeout brute force w minutach
      * @param cleanupIntervalMinutes   Interwał czyszczenia cache w minutach
      * @param settings                 Ustawienia pluginu
+     * @param messages                 System wiadomości i18n
      */
-    @SuppressWarnings("java:S107") // SonarCloud false positive: all 8 parameters required for cache configuration
+    @SuppressWarnings("java:S107") // SonarCloud false positive: all 9 parameters required for cache configuration
     public AuthCache(int ttlMinutes, int maxSize, int maxSessions, int maxPremiumCache,
                      int maxLoginAttempts, int bruteForceTimeoutMinutes, int cleanupIntervalMinutes,
-                     Settings settings) {
+                     Settings settings, Messages messages) {
 
         if (ttlMinutes < 0) {
-            throw new IllegalArgumentException("TTL nie może być ujemny");
+            throw new IllegalArgumentException(messages.get("validation.ttl.negative"));
         }
         if (maxSize <= 0) {
-            throw new IllegalArgumentException("MaxSize musi być > 0");
+            throw new IllegalArgumentException(messages.get("validation.maxsize.gt_zero"));
         }
         if (maxSessions <= 0) {
-            throw new IllegalArgumentException("MaxSessions musi być > 0");
+            throw new IllegalArgumentException(messages.get("validation.maxsessions.gt_zero"));
         }
         if (maxPremiumCache <= 0) {
-            throw new IllegalArgumentException("MaxPremiumCache musi być > 0");
+            throw new IllegalArgumentException(messages.get("validation.maxpremiumcache.gt_zero"));
         }
         if (maxLoginAttempts <= 0) {
-            throw new IllegalArgumentException("MaxLoginAttempts musi być > 0");
+            throw new IllegalArgumentException(messages.get("validation.maxloginattempts.gt_zero"));
         }
         if (bruteForceTimeoutMinutes <= 0) {
-            throw new IllegalArgumentException("BruteForceTimeout musi być > 0");
+            throw new IllegalArgumentException(messages.get("validation.bruteforcetimeout.gt_zero"));
         }
 
         this.ttlMinutes = ttlMinutes;
@@ -156,6 +162,7 @@ public class AuthCache {
         this.maxLoginAttempts = maxLoginAttempts;
         this.bruteForceTimeoutMinutes = bruteForceTimeoutMinutes;
         this.settings = settings;
+        this.messages = messages;
 
         // ZAWSZE ConcurrentHashMap dla thread-safety
         this.authorizedPlayers = new ConcurrentHashMap<>();
@@ -198,7 +205,7 @@ public class AuthCache {
                 5, 5, TimeUnit.MINUTES
         );
 
-        logger.info("AuthCache utworzony: TTL={}min, MaxSize={}, MaxAttempts={}, BruteForceTimeout={}min",
+        logger.info(messages.get("cache.auth.created"),
                 ttlMinutes, maxSize, maxLoginAttempts, bruteForceTimeoutMinutes);
     }
 
@@ -223,7 +230,7 @@ public class AuthCache {
                 }
 
                 authorizedPlayers.put(uuid, user);
-                logger.debug("Dodano do cache autoryzowanego gracza: {} (UUID: {})",
+                logger.debug(messages.get("cache.debug.auth.added"),
                         user.getNickname(), uuid);
 
             } finally {
@@ -231,7 +238,7 @@ public class AuthCache {
             }
 
         } catch (IllegalStateException e) {
-            logger.error("Błąd stanu cache podczas dodawania gracza: " + uuid, e);
+            logger.error(messages.get("cache.error.state.add_player") + uuid, e);
         }
     }
 
@@ -251,7 +258,7 @@ public class AuthCache {
             cacheMisses.incrementAndGet();
             double rate = (double) cacheHits.get() / Math.max(1, cacheHits.get() + cacheMisses.get()) * 100;
             String rateStr = String.format(java.util.Locale.US, "%.1f", rate);
-            logger.debug("[CACHE-MISS] UUID: {} (ratio: {}%)",
+            logger.debug(messages.get("cache.debug.uuid.miss"),
                     uuid, rateStr);
             return null;
         }
@@ -262,7 +269,7 @@ public class AuthCache {
             cacheMisses.incrementAndGet();
             double rate = (double) cacheHits.get() / Math.max(1, cacheHits.get() + cacheMisses.get()) * 100;
             String rateStr = String.format(java.util.Locale.US, "%.1f", rate);
-            logger.debug("[CACHE-EXPIRED] UUID: {}, hit rate: {}%",
+            logger.debug(messages.get("cache.debug.uuid.expired"),
                     uuid, rateStr);
             return null;
         }
@@ -270,7 +277,7 @@ public class AuthCache {
         cacheHits.incrementAndGet();
         double rate = (double) cacheHits.get() / Math.max(1, cacheHits.get() + cacheMisses.get()) * 100;
         String rateStr = String.format(java.util.Locale.US, "%.1f", rate);
-        logger.debug("[CACHE-HIT] Hit rate: {}%", rateStr);
+        logger.debug(messages.get("cache.debug.hit.rate"), rateStr);
         return user;
     }
 
@@ -283,7 +290,7 @@ public class AuthCache {
         if (uuid != null) {
             CachedAuthUser removed = authorizedPlayers.remove(uuid);
             if (removed != null) {
-                logger.debug("Usunięto z cache gracza: {} (UUID: {})",
+                logger.debug(messages.get("cache.debug.player.removed"),
                         removed.getNickname(), uuid);
             }
         }
@@ -318,7 +325,7 @@ public class AuthCache {
 
         PremiumCacheEntry removed = premiumCache.remove(nickname.toLowerCase());
         if (removed != null) {
-            logger.debug("Usunięto z premium cache: {} (był premium: {})",
+            logger.debug(messages.get("cache.debug.premium.removed"),
                     nickname, removed.isPremium());
         }
     }
@@ -347,7 +354,7 @@ public class AuthCache {
                 PremiumCacheEntry entry = new PremiumCacheEntry(premiumUuid != null, premiumUuid);
                 premiumCache.put(nickname.toLowerCase(), entry);
 
-                logger.debug("Dodano do premium cache: {} (premium: {})",
+                logger.debug(messages.get("cache.debug.premium.added"),
                         nickname, premiumUuid != null);
 
             } finally {
@@ -355,7 +362,7 @@ public class AuthCache {
             }
 
         } catch (IllegalStateException e) {
-            logger.error("Błąd stanu cache podczas dodawania premium gracza: " + nickname, e);
+            logger.error(messages.get("cache.error.state.add_premium") + nickname, e);
         }
     }
 
@@ -387,10 +394,10 @@ public class AuthCache {
 
                 boolean blocked = entry.getAttempts() >= maxLoginAttempts;
                 if (blocked) {
-                    logger.warn("IP {} zablokowany za brute force ({} prób)",
+                    logger.warn(messages.get("cache.warn.ip.blocked"),
                             address.getHostAddress(), entry.getAttempts());
                 } else {
-                    logger.debug("Nieudana próba logowania z IP {} ({}/{})",
+                    logger.debug(messages.get("cache.debug.failed.login"),
                             address.getHostAddress(), entry.getAttempts(), maxLoginAttempts);
                 }
 
@@ -401,10 +408,10 @@ public class AuthCache {
             }
 
         } catch (IllegalStateException e) {
-            logger.error("Błąd stanu cache podczas rejestrowania nieudanej próby: " + address, e);
+            logger.error(messages.get("cache.error.state.register_failed") + address, e);
             return false;
         } catch (IllegalArgumentException e) {
-            logger.error("Błąd argumentów podczas rejestrowania nieudanej próby: " + address, e);
+            logger.error(messages.get("cache.error.args.register_failed") + address, e);
             return false;
         }
     }
@@ -443,7 +450,7 @@ public class AuthCache {
         if (address != null) {
             BruteForceEntry removed = bruteForceAttempts.remove(address);
             if (removed != null) {
-                logger.debug("Zresetowano próby logowania dla IP: {}", address.getHostAddress());
+                logger.debug(messages.get("cache.debug.reset.attempts"), address.getHostAddress());
             }
         }
     }
@@ -484,14 +491,14 @@ public class AuthCache {
                 bruteForceAttempts.clear();
                 premiumCache.clear();
                 activeSessions.clear();
-                logger.info("Wszystkie cache wyczyszczone");
+                logger.info(messages.get("cache.all_cleared"));
 
             } finally {
                 cacheLock.unlock();
             }
 
         } catch (IllegalStateException e) {
-            logger.error("Błąd stanu cache podczas czyszczenia", e);
+            logger.error(messages.get("cache.error.state.clear"), e);
         }
     }
 
@@ -514,14 +521,14 @@ public class AuthCache {
 
                 ActiveSession session = new ActiveSession(uuid, nickname, ip);
                 activeSessions.put(uuid, session);
-                logger.debug("Sesja rozpoczęta: {} (UUID: {}, IP: {})", nickname, uuid, ip);
+                logger.debug(messages.get("cache.debug.session.started"), nickname, uuid, ip);
 
             } finally {
                 cacheLock.unlock();
             }
 
         } catch (IllegalStateException e) {
-            logger.error("Błąd stanu cache podczas rozpoczynania sesji: " + uuid, e);
+            logger.error(messages.get("cache.error.state.start_session") + uuid, e);
         }
     }
 
@@ -535,7 +542,7 @@ public class AuthCache {
 
         ActiveSession removed = activeSessions.remove(uuid);
         if (removed != null) {
-            logger.debug("Sesja zakończona: {} (UUID: {})", removed.getNickname(), uuid);
+            logger.debug(messages.get("cache.debug.session.ended"), removed.getNickname(), uuid);
         }
     }
 
@@ -556,7 +563,7 @@ public class AuthCache {
         // KLUCZOWE: Sprawdź czy nickname się zgadza
         if (!session.getNickname().equalsIgnoreCase(nickname)) {
             logger.warn(SECURITY_MARKER,
-                    "[SESSION HIJACK ATTEMPT] UUID {} ma sesję dla {} ale próbuje zalogować się jako {}",
+                    messages.get("security.session.hijack"),
                     uuid, session.getNickname(), nickname);
 
             // Usuń podejrzaną sesję
@@ -566,7 +573,7 @@ public class AuthCache {
 
         // NOWE: Sprawdź czy IP się zgadza
         if (!session.getIp().equals(currentIp)) {
-            logger.warn(SECURITY_MARKER, "[SESSION IP MISMATCH] UUID {} zmienił IP: {} -> {}",
+            logger.warn(SECURITY_MARKER, messages.get("security.session.ip.mismatch"),
                     uuid, session.getIp(), currentIp);
             activeSessions.remove(uuid);
             return false;
@@ -769,7 +776,7 @@ public class AuthCache {
             if (cacheHits.get() + cacheMisses.get() > 0) {
                 double rate = (double) cacheHits.get() / (cacheHits.get() + cacheMisses.get()) * 100;
                 String rateStr = String.format(java.util.Locale.US, "%.1f", rate);
-                logger.info("Cache Stats - Hits: {}, Misses: {}, Hit Rate: {}%",
+                logger.info(messages.get("cache.stats_final"),
                         cacheHits.get(), cacheMisses.get(), rateStr);
             }
 
@@ -786,13 +793,13 @@ public class AuthCache {
             }
 
             clearAll();
-            logger.info("AuthCache zamknięty");
+            logger.info(messages.get("cache.shutdown"));
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             cleanupScheduler.shutdownNow();
             metricsScheduler.shutdownNow();
-            logger.warn("Przerwano zamykanie AuthCache");
+            logger.warn(messages.get("cache.interrupted_shutdown"));
         }
     }
 

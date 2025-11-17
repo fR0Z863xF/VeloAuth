@@ -3,6 +3,7 @@ package net.rafalohaki.veloauth.util;
 import at.favre.lib.crypto.bcrypt.BCrypt;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.database.DatabaseManager;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import org.slf4j.Logger;
 import org.slf4j.Marker;
@@ -74,7 +75,7 @@ public final class AuthenticationHelper {
     public static CompletableFuture<RegisteredPlayer> performRegistration(
             DatabaseManager databaseManager, String username, String password,
             String playerIp, String playerUuid, Settings settings,
-            Logger logger, Marker dbMarker) {
+            Logger logger, Marker dbMarker, Messages messages) {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -91,7 +92,7 @@ public final class AuthenticationHelper {
                 
                 RegisteredPlayer existingPlayer = existingResult.getValue();
                 if (existingPlayer != null) {
-                    logger.debug(dbMarker, StringConstants.PLAYER_ALREADY_EXISTS_IN_DATABASE, username);
+                    logger.debug(dbMarker, messages.get("player.already_exists"), username);
                     return null;
                 }
 
@@ -113,15 +114,15 @@ public final class AuthenticationHelper {
                 
                 boolean saved = saveResult.getValue();
                 if (!saved) {
-                    logger.error(dbMarker, StringConstants.FAILED_TO_SAVE_PLAYER, username);
+                    logger.error(dbMarker, messages.get("player.save.failed"), username);
                     return null;
                 }
 
-                logger.info(dbMarker, StringConstants.PLAYER_SUCCESSFULLY_REGISTERED, username);
+                logger.info(dbMarker, messages.get("player.registered.success"), username);
                 return newPlayer;
 
             } catch (Exception e) {
-                logger.error(dbMarker, StringConstants.ERROR_DURING_PLAYER_REGISTRATION, username, e);
+                logger.error(dbMarker, messages.get("player.registration.error"), username, e);
                 return null;
             }
         });
@@ -139,7 +140,7 @@ public final class AuthenticationHelper {
      */
     public static CompletableFuture<RegisteredPlayer> performLogin(
             DatabaseManager databaseManager, String username, String password,
-            Logger logger, Marker dbMarker) {
+            Logger logger, Marker dbMarker, Messages messages) {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -156,21 +157,21 @@ public final class AuthenticationHelper {
                 
                 RegisteredPlayer registeredPlayer = playerResult.getValue();
                 if (registeredPlayer == null) {
-                    logger.debug(dbMarker, StringConstants.PLAYER_NOT_FOUND_IN_DATABASE, username);
+                    logger.debug(dbMarker, messages.get("player.not_found"), username);
                     return null;
                 }
 
                 // Verify password
                 if (!verifyPassword(password, registeredPlayer.getHash())) {
-                    logger.debug(dbMarker, StringConstants.INVALID_PASSWORD_FOR_PLAYER, username);
+                    logger.debug(dbMarker, messages.get("player.password.invalid"), username);
                     return null;
                 }
 
-                logger.info(dbMarker, StringConstants.PLAYER_SUCCESSFULLY_VERIFIED, username);
+                logger.info(dbMarker, messages.get("player.verified.success"), username);
                 return registeredPlayer;
 
             } catch (Exception e) {
-                logger.error(dbMarker, StringConstants.ERROR_DURING_PLAYER_LOGIN, username, e);
+                logger.error(dbMarker, messages.get("player.login.error"), username, e);
                 return null;
             }
         });
@@ -190,7 +191,7 @@ public final class AuthenticationHelper {
      */
     public static CompletableFuture<Boolean> performPasswordChange(
             DatabaseManager databaseManager, String username, String oldPassword, String newPassword,
-            Settings settings, Logger logger, Marker dbMarker) {
+            Settings settings, Logger logger, Marker dbMarker, Messages messages) {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -207,13 +208,13 @@ public final class AuthenticationHelper {
                 
                 RegisteredPlayer registeredPlayer = playerResult.getValue();
                 if (registeredPlayer == null) {
-                    logger.debug(dbMarker, StringConstants.PLAYER_NOT_FOUND_IN_DATABASE, username);
+                    logger.debug(dbMarker, messages.get("player.not_found"), username);
                     return false;
                 }
 
                 // Verify old password
                 if (!verifyPassword(oldPassword, registeredPlayer.getHash())) {
-                    logger.debug(dbMarker, StringConstants.INVALID_OLD_PASSWORD_FOR_PLAYER, username);
+                    logger.debug(dbMarker, messages.get("player.old_password.invalid"), username);
                     return false;
                 }
 
@@ -233,15 +234,15 @@ public final class AuthenticationHelper {
                 
                 boolean saved = saveResult.getValue();
                 if (saved) {
-                    logger.info(dbMarker, StringConstants.PLAYER_SUCCESSFULLY_CHANGED_PASSWORD, username);
+                    logger.info(dbMarker, messages.get("player.password.changed.success"), username);
                     return true;
                 } else {
-                    logger.error(dbMarker, StringConstants.FAILED_TO_SAVE_NEW_PASSWORD, username);
+                    logger.error(dbMarker, messages.get("player.password.save.failed"), username);
                     return false;
                 }
 
             } catch (Exception e) {
-                logger.error(dbMarker, StringConstants.ERROR_DURING_PASSWORD_CHANGE, username, e);
+                logger.error(dbMarker, messages.get("player.password.change.error"), username, e);
                 return false;
             }
         });
@@ -259,7 +260,7 @@ public final class AuthenticationHelper {
      */
     public static CompletableFuture<Boolean> performAccountDeletion(
             DatabaseManager databaseManager, String username, String password,
-            Logger logger, Marker dbMarker) {
+            Logger logger, Marker dbMarker, Messages messages) {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -277,13 +278,13 @@ public final class AuthenticationHelper {
                 RegisteredPlayer registeredPlayer = playerResult.getValue();
 
                 if (registeredPlayer == null) {
-                    logger.debug(dbMarker, StringConstants.PLAYER_NOT_FOUND_IN_DATABASE, username);
+                    logger.debug(dbMarker, messages.get("player.not_found"), username);
                     return false;
                 }
 
                 // Verify password
                 if (!verifyPassword(password, registeredPlayer.getHash())) {
-                    logger.debug(dbMarker, StringConstants.INVALID_PASSWORD_FOR_ACCOUNT_DELETION, username);
+                    logger.debug(dbMarker, messages.get("player.password.invalid.deletion"), username);
                     return false;
                 }
 
@@ -300,15 +301,15 @@ public final class AuthenticationHelper {
                 boolean deleted = deleteResult.getValue();
 
                 if (deleted) {
-                    logger.info(dbMarker, StringConstants.PLAYER_SUCCESSFULLY_DELETED_ACCOUNT, username);
+                    logger.info(dbMarker, messages.get("player.account.deleted.success"), username);
                     return true;
                 } else {
-                    logger.error(dbMarker, StringConstants.FAILED_TO_DELETE_PLAYER_ACCOUNT, username);
+                    logger.error(dbMarker, messages.get("player.account.delete.failed"), username);
                     return false;
                 }
 
             } catch (Exception e) {
-                logger.error(dbMarker, StringConstants.ERROR_DURING_ACCOUNT_DELETION, username, e);
+                logger.error(dbMarker, messages.get("player.account.deletion.error"), username, e);
                 return false;
             }
         });

@@ -8,6 +8,7 @@ import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
+import static com.velocitypowered.api.event.ResultedEvent.ComponentResult;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.rafalohaki.veloauth.VeloAuth;
@@ -17,6 +18,8 @@ import net.rafalohaki.veloauth.command.ValidationUtils;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.connection.ConnectionManager;
 import net.rafalohaki.veloauth.database.DatabaseManager;
+import net.rafalohaki.veloauth.database.DatabaseManager.DbResult;
+import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.premium.PremiumResolution;
@@ -88,7 +91,9 @@ public class AuthListener {
         this.databaseManager = databaseManager;
         this.messages = messages;
 
-        logger.info(messages.get("connection.listener.registered"));
+        if (logger.isInfoEnabled()) {
+            logger.info(messages.get("connection.listener.registered"));
+        }
     }
 
     /**
@@ -236,7 +241,9 @@ public class AuthListener {
             premiumUuid = resolution.uuid();
             String canonical = resolution.canonicalUsername() != null ? resolution.canonicalUsername() : username;
             authCache.addPremiumPlayer(canonical, premiumUuid);
-            logger.info(messages.get("player.premium.confirmed"), username, resolution.source(), premiumUuid);
+            if (logger.isInfoEnabled()) {
+                logger.info(messages.get("player.premium.confirmed"), username, resolution.source(), premiumUuid);
+            }
         } else if (resolution.isOffline()) {
             authCache.addPremiumPlayer(username, null);
             logger.debug("{} nie jest premium (resolver: {}, info: {})", username, resolution.source(), resolution.message());
@@ -269,7 +276,7 @@ public class AuthListener {
                 logger.warn("🔒 BLOKADA STARTU: Gracz {} próbował zalogować się przed pełną inicjalizacją VeloAuth - blokada logowania",
                         playerName);
 
-                event.setResult(LoginEvent.ComponentResult.denied(
+                event.setResult(ComponentResult.denied(
                         Component.text("VeloAuth się uruchamia. Spróbuj zalogować się ponownie za chwilę.",
                                 NamedTextColor.RED)
                 ));
@@ -286,11 +293,10 @@ public class AuthListener {
                         playerName);
                 logger.warn(SECURITY_MARKER, message);
 
-                event.setResult(LoginEvent.ComponentResult.denied(
+                event.setResult(ComponentResult.denied(
                         Component.text("Zbyt wiele nieudanych prób logowania. Spróbuj ponownie później.",
                                 NamedTextColor.RED)
                 ));
-                allowed = false;
                 return;
             }
 
@@ -299,7 +305,7 @@ public class AuthListener {
         } catch (Exception e) {
             logger.error("Błąd podczas obsługi LoginEvent dla gracza: {}", event.getPlayer().getUsername(), e);
 
-            event.setResult(LoginEvent.ComponentResult.denied(
+            event.setResult(ComponentResult.denied(
                     Component.text("Wystąpił błąd podczas łączenia. Spróbuj ponownie.",
                             NamedTextColor.RED)
             ));
@@ -307,7 +313,7 @@ public class AuthListener {
         }
 
         if (allowed) {
-            event.setResult(LoginEvent.ComponentResult.allowed());
+            event.setResult(ComponentResult.allowed());
         }
     }
 
@@ -347,7 +353,9 @@ public class AuthListener {
 
         try {
             if (player.isOnlineMode()) {
-                logger.info(AUTH_MARKER, messages.get("player.premium.verified"), player.getUsername());
+                if (logger.isInfoEnabled()) {
+                    logger.info(AUTH_MARKER, messages.get("player.premium.verified"), player.getUsername());
+                }
 
                 UUID playerUuid = player.getUniqueId();
                 UUID premiumUuid = Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
@@ -374,8 +382,10 @@ public class AuthListener {
                 return;
             }
 
-            logger.info(messages.get("player.unauthorized.redirect"),
-                    player.getUsername());
+            if (logger.isInfoEnabled()) {
+                logger.info(messages.get("player.unauthorized.redirect"),
+                        player.getUsername());
+            }
 
             // Uruchom w osobnym wątku, aby nie blokować głównego
             plugin.getServer().getScheduler().buildTask(plugin, () -> {
@@ -462,8 +472,10 @@ public class AuthListener {
                 // ❌ NIE AUTORYZOWANY LUB BRAK SESJI LUB UUID MISMATCH
                 String reason = resolveBlockReason(isAuthorized, hasActiveSession);
 
-                logger.warn(SECURITY_MARKER, messages.get("player.blocked.unauthorized"),
-                        player.getUsername(), targetServerName, reason, playerIp);
+                if (logger.isWarnEnabled()) {
+                    logger.warn(SECURITY_MARKER, messages.get("player.blocked.unauthorized"),
+                            player.getUsername(), targetServerName, reason, playerIp);
+                }
 
                 event.setResult(ServerPreConnectEvent.ServerResult.denied());
 
@@ -613,79 +625,92 @@ public class AuthListener {
     }
 
     /**
-     * Weryfikuje czy UUID gracza zgadza się z UUID w bazie danych.
-     * Zapobiega UUID spoofing atakom.
-     * <p>
-     * UWAGA: Dla premium players (online mode) pomijamy weryfikację z bazą,
+     * Weryfikuje UUID gracza z bazą danych.
+     * Dla graczy online mode (premium) pomija weryfikację,
      * ponieważ nie muszą być zarejestrowani w bazie danych.
      */
     private boolean verifyPlayerUuid(Player player) {
         try {
-            // Jeśli gracz jest online mode (premium), pomijamy weryfikację UUID z bazą
-            // Ponieważ premium players nie muszą być w bazie danych
             if (player.isOnlineMode()) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Premium gracz {} - pomijam weryfikację UUID z bazą", player.getUsername());
-                }
-                return true;
+                return handlePremiumPlayer(player);
             }
-
-            // Dla cracked players, zweryfikuj UUID z bazą danych
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
-
-                    // CRITICAL: Fail-secure on database errors
-                    if (dbResult.isDatabaseError()) {
-                        logger.error(SECURITY_MARKER, "[DATABASE ERROR] UUID verification failed for {}: {}",
-                                player.getUsername(), dbResult.getErrorMessage());
-                        // Remove from cache to prevent unauthorized access
-                        authCache.removeAuthorizedPlayer(player.getUniqueId());
-                        authCache.endSession(player.getUniqueId());
-                        return false;
-                    }
-
-                    var dbPlayer = dbResult.getValue();
-                    if (dbPlayer == null) {
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("Brak UUID w bazie dla gracza {}", player.getUsername());
-                        }
-                        return false;
-                    }
-
-                    UUID storedUuid = UUID.fromString(dbPlayer.getUuid());
-                    UUID playerUuid = player.getUniqueId();
-
-                    boolean matches = playerUuid.equals(storedUuid);
-                    if (!matches) {
-                        logger.warn(SECURITY_MARKER,
-                                "[UUID VERIFICATION FAILED] Player: {} (UUID: {}), DB: {} (UUID: {})",
-                                player.getUsername(), playerUuid, dbPlayer.getNickname(), storedUuid);
-                        // Remove from cache for security
-                        authCache.removeAuthorizedPlayer(player.getUniqueId());
-                        authCache.endSession(player.getUniqueId());
-                    }
-
-                    return matches;
-                } catch (Exception e) {
-                    if (logger.isErrorEnabled()) {
-                        logger.error("Błąd podczas weryfikacji UUID dla gracza: {}", player.getUsername(), e);
-                    }
-                    // Remove from cache for security on any error
-                    authCache.removeAuthorizedPlayer(player.getUniqueId());
-                    authCache.endSession(player.getUniqueId());
-                    return false; // Fail secure
-                }
-            }).join(); // Blokuj do czasu uzyskania wyniku
+            
+            return verifyCrackedPlayerUuid(player);
         } catch (Exception e) {
-            if (logger.isErrorEnabled()) {
-                logger.error("Błąd podczas weryfikacji UUID dla gracza: {}", player.getUsername(), e);
+            return handleVerificationError(player, e);
+        }
+    }
+    
+    private boolean handlePremiumPlayer(Player player) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("Premium gracz {} - pomijam weryfikację UUID z bazą", player.getUsername());
+        }
+        return true;
+    }
+    
+    private boolean verifyCrackedPlayerUuid(Player player) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
+                
+                if (dbResult.isDatabaseError()) {
+                    return handleDatabaseVerificationError(player, dbResult);
+                }
+                
+                return performUuidVerification(player, dbResult.getValue());
+            } catch (Exception e) {
+                return handleAsyncVerificationError(player, e);
             }
-            // Remove from cache for security on any error
-            authCache.removeAuthorizedPlayer(player.getUniqueId());
-            authCache.endSession(player.getUniqueId());
+        }).join();
+    }
+    
+    private boolean handleDatabaseVerificationError(Player player, DbResult<RegisteredPlayer> dbResult) {
+        logger.error(SECURITY_MARKER, "[DATABASE ERROR] UUID verification failed for {}: {}",
+                player.getUsername(), dbResult.getErrorMessage());
+        authCache.removeAuthorizedPlayer(player.getUniqueId());
+        authCache.endSession(player.getUniqueId());
+        return false;
+    }
+    
+    private boolean performUuidVerification(Player player, RegisteredPlayer dbPlayer) {
+        if (dbPlayer == null) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Brak UUID w bazie dla gracza {}", player.getUsername());
+            }
             return false;
         }
+        
+        UUID storedUuid = UUID.fromString(dbPlayer.getUuid());
+        UUID playerUuid = player.getUniqueId();
+        
+        boolean matches = playerUuid.equals(storedUuid);
+        if (!matches) {
+            handleUuidMismatch(player, playerUuid, dbPlayer, storedUuid);
+        }
+        
+        return matches;
+    }
+    
+    private void handleUuidMismatch(Player player, UUID playerUuid, RegisteredPlayer dbPlayer, UUID storedUuid) {
+        logger.warn(SECURITY_MARKER,
+                "[UUID VERIFICATION FAILED] Player: {} (UUID: {}), DB: {} (UUID: {})",
+                player.getUsername(), playerUuid, dbPlayer.getNickname(), storedUuid);
+        authCache.removeAuthorizedPlayer(player.getUniqueId());
+        authCache.endSession(player.getUniqueId());
+    }
+    
+    private boolean handleAsyncVerificationError(Player player, Exception e) {
+        if (logger.isErrorEnabled()) {
+            logger.error("Błąd podczas weryfikacji UUID dla gracza: {}", player.getUsername(), e);
+        }
+        return false;
+    }
+    
+    private boolean handleVerificationError(Player player, Exception e) {
+        if (logger.isErrorEnabled()) {
+            logger.error("Błąd podczas weryfikacji UUID gracza: {}", player.getUsername(), e);
+        }
+        return false;
     }
 
     /**

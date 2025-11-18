@@ -8,6 +8,7 @@ import net.rafalohaki.veloauth.VeloAuth;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.database.DatabaseManager;
+import net.rafalohaki.veloauth.database.DatabaseManager.DbResult;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
@@ -200,9 +201,11 @@ public class ConnectionManager {
 
             if (storedUuid != null && !playerUuid.equals(storedUuid)) {
                 // UUID MISMATCH - POTENCJALNY ATAK!
-                logger.error(SECURITY_MARKER,
-                        "[UUID MISMATCH DETECTED] Gracz {} ma UUID {} ale baza zawiera {} (IP: {})",
-                        player.getUsername(), playerUuid, storedUuid, getPlayerIp(player));
+                if (logger.isErrorEnabled()) {
+                    logger.error(SECURITY_MARKER,
+                            "[UUID MISMATCH DETECTED] Gracz {} ma UUID {} ale baza zawiera {} (IP: {})",
+                            player.getUsername(), playerUuid, storedUuid, getPlayerIp(player));
+                }
 
                 // Usuń z cache i zakończ sesję
                 authCache.removeAuthorizedPlayer(player.getUniqueId());
@@ -246,12 +249,13 @@ public class ConnectionManager {
             if (logger.isErrorEnabled()) {
                 logger.error("Błąd podczas weryfikacji gracza: {}", player.getUsername(), e);
             }
-            return transferToPicoLimbo(player);
+            disconnectWithError(player, "Wystąpił błąd weryfikacji bazy danych.");
+            return false;
         }
     }
 
     /**
-     * Transferuje gracza na serwer PicoLimbo.
+     * Transferuje gracza na serwer PicoLimbo z asynchronicznym sprawdzeniem konta.
      * Używa synchronicznego połączenia z prawidłową obsługą błędów.
      *
      * @param player Gracz do transferu
@@ -259,89 +263,102 @@ public class ConnectionManager {
      */
     public boolean transferToPicoLimbo(Player player) {
         try {
-            Optional<RegisteredServer> picoLimboServer = plugin.getServer()
-                    .getServer(settings.getPicoLimboServerName());
-
-            if (picoLimboServer.isEmpty()) {
-                logger.error("Serwer PicoLimbo '{}' nie jest zarejestrowany!",
-                        settings.getPicoLimboServerName());
-
-                player.disconnect(Component.text(
-                        "Serwer autoryzacji jest niedostępny. Spróbuj ponownie później.",
-                        NamedTextColor.RED
-                ));
+            RegisteredServer targetServer = validateAndGetPicoLimboServer(player);
+            if (targetServer == null) {
                 return false;
             }
 
-            RegisteredServer targetServer = picoLimboServer.get();
             if (logger.isDebugEnabled()) {
                 logger.debug(messages.get("player.transfer.attempt"), player.getUsername());
             }
 
-            // Asynchroniczne sprawdzenie czy konto istnieje i wyświetlenie odpowiedniego komunikatu
-            CompletableFuture<Void> messageFuture = databaseManager.findPlayerByNickname(player.getUsername())
-                    .thenAccept(dbResult -> {
-                        // CRITICAL: Handle DbResult properly - don't unwrap incorrectly
-                        if (dbResult.isDatabaseError()) {
-                            if (logger.isWarnEnabled()) {
-                                logger.warn("Database error while checking account for {}: {}",
-                                        player.getUsername(), dbResult.getErrorMessage());
-                            }
-                            sendGenericAuthMessage(player);
-                            return;
-                        }
-
-                        RegisteredPlayer existingPlayer = dbResult.getValue();
-                        if (existingPlayer != null) {
-                            // Konto istnieje - pokazuj komunikat logowania
-                            sendLoginMessage(player);
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("Wykryto istniejące konto dla {} - pokazano komunikat logowania", player.getUsername());
-                            }
-                        } else {
-                            // Konto nie istnieje - pokazuj komunikat rejestracji
-                            sendRegisterMessage(player);
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("Wykryto nowe konto dla {} - pokazano komunikat rejestracji", player.getUsername());
-                            }
-                        }
-                    })
-                    .exceptionally(throwable -> {
-                        if (logger.isWarnEnabled()) {
-                            logger.warn("Błąd podczas sprawdzania konta dla {}: {}", player.getUsername(), throwable.getMessage());
-                        }
-                        // Fallback do generycznego komunikatu w przypadku błędu
-                        sendGenericAuthMessage(player);
-                        return null;
-                    });
-
-            // Monitor completion of the async message operation with timeout
-            messageFuture
-                    .orTimeout(10, TimeUnit.SECONDS)
-                    .whenComplete((result, throwable) -> {
-                        if (throwable != null) {
-                            if (logger.isErrorEnabled()) {
-                                logger.error("Krytyczny błąd w operacji wiadomości dla {}: {}",
-                                        player.getUsername(), throwable.getMessage(), throwable);
-                            }
-                        }
-                    }).join();  // Wait for message to complete before transfer
-
+            sendAccountCheckMessage(player);
             return executePicoLimboTransfer(player, targetServer);
 
         } catch (Exception e) {
-            if (logger.isErrorEnabled()) {
-                logger.error("Krytyczny błąd podczas próby transferu gracza na PicoLimbo: {}", player.getUsername(), e);
-            }
-
-            disconnectWithError(player, "Wystąpił krytyczny błąd podczas łączenia z serwerem autoryzacji.");
-            return false;
+            return handleTransferError(player, e);
         }
+    }
+    
+    private RegisteredServer validateAndGetPicoLimboServer(Player player) {
+        Optional<RegisteredServer> picoLimboServer = plugin.getServer()
+                .getServer(settings.getPicoLimboServerName());
+
+        if (picoLimboServer.isEmpty()) {
+            logger.error("Serwer PicoLimbo '{}' nie jest zarejestrowany!",
+                    settings.getPicoLimboServerName());
+
+            player.disconnect(Component.text(
+                    "Serwer autoryzacji jest niedostępny. Spróbuj ponownie później.",
+                    NamedTextColor.RED
+            ));
+            return null;
+        }
+        
+        return picoLimboServer.get();
+    }
+    
+    private void sendAccountCheckMessage(Player player) {
+        CompletableFuture<Void> messageFuture = databaseManager.findPlayerByNickname(player.getUsername())
+                .thenAccept(dbResult -> handleAccountCheckResult(player, dbResult))
+                .exceptionally(throwable -> handleAccountCheckException(player, throwable));
+
+        messageFuture
+                .orTimeout(10, TimeUnit.SECONDS)
+                .whenComplete((result, throwable) -> handleMessageCompletion(player, throwable))
+                .join();
+    }
+    
+    private void handleAccountCheckResult(Player player, DbResult<RegisteredPlayer> dbResult) {
+        if (dbResult.isDatabaseError()) {
+            if (logger.isWarnEnabled()) {
+                logger.warn("Database error while checking account for {}: {}",
+                        player.getUsername(), dbResult.getErrorMessage());
+            }
+            sendGenericAuthMessage(player);
+            return;
+        }
+
+        RegisteredPlayer existingPlayer = dbResult.getValue();
+        if (existingPlayer != null) {
+            sendLoginMessage(player);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Wykryto istniejące konto dla {} - pokazano komunikat logowania", player.getUsername());
+            }
+        } else {
+            sendRegisterMessage(player);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Wykryto nowe konto dla {} - pokazano komunikat rejestracji", player.getUsername());
+            }
+        }
+    }
+    
+    private Void handleAccountCheckException(Player player, Throwable throwable) {
+        if (logger.isWarnEnabled()) {
+            logger.warn("Błąd podczas sprawdzania konta dla {}: {}", player.getUsername(), throwable.getMessage());
+        }
+        sendGenericAuthMessage(player);
+        return null;
+    }
+    
+    private void handleMessageCompletion(Player player, Throwable throwable) {
+        if (throwable != null && logger.isErrorEnabled()) {
+            logger.error("Krytyczny błąd w operacji wiadomości dla {}: {}",
+                    player.getUsername(), throwable.getMessage(), throwable);
+        }
+    }
+    
+    private boolean handleTransferError(Player player, Exception e) {
+        if (logger.isErrorEnabled()) {
+            logger.error("Krytyczny błąd podczas próby transferu gracza na PicoLimbo: {}", player.getUsername(), e);
+        }
+
+        disconnectWithError(player, "Wystąpił krytyczny błąd podczas łączenia z serwerem autoryzacji.");
+        return false;
     }
 
     /**
      * Wykonuje transfer gracza na serwer PicoLimbo.
-     *
      * @param player       Gracz do transferu
      * @param targetServer Serwer docelowy PicoLimbo
      * @return true jeśli transfer się udał
@@ -420,44 +437,54 @@ public class ConnectionManager {
                         player.getUsername(), serverName);
             }
 
-            // Wykonaj transfer synchronicznie z timeoutem
-            try {
-                // Użyj .join() aby zablokować do czasu zakończenia transferu
-                boolean transferSuccess = player.createConnectionRequest(targetServer)
-                        .connect()
-                        .join() // Czekaj na zakończenie transferu
-                        .isSuccessful();
+            // Wykonaj transfer synchroniczny z timeoutem
+            return executeBackendTransfer(player, targetServer, serverName);
 
-                if (transferSuccess) {
+        } catch (Exception e) {
+            logger.error("Błąd podczas transferu gracza na backend: {}", player.getUsername(), e);
+
+            player.sendMessage(Component.text(
+                    "Wystąpił błąd podczas łączenia z serwerem gry.",
+                    NamedTextColor.RED
+            ));
+            return false;
+        }
+    }
+    
+    private boolean executeBackendTransfer(Player player, RegisteredServer targetServer, String serverName) {
+        try {
+            // Użyj .join() aby zablokować do czasu zakończenia transferu
+            boolean transferSuccess = player.createConnectionRequest(targetServer)
+                    .connect()
+                    .join() // Czekaj na zakończenie transferu
+                    .isSuccessful();
+
+            if (transferSuccess) {
+                if (logger.isInfoEnabled()) {
                     logger.info(messages.get("player.transfer.backend.success"),
                             player.getUsername(), serverName);
-                    return true;
-                } else {
+                }
+                return true;
+            } else {
+                if (logger.isWarnEnabled()) {
                     logger.warn("Nie udało się przenieść gracza {} na serwer {}",
                             player.getUsername(), serverName);
-
-                    player.sendMessage(Component.text(
-                            "Nie udało się połączyć z serwerem gry. Spróbuj ponownie.",
-                            NamedTextColor.RED
-                    ));
-                    return false;
                 }
-            } catch (Exception e) {
-                logger.error("Błąd podczas transferu gracza {} na serwer {}: {}",
-                        player.getUsername(), serverName, e.getMessage(), e);
 
                 player.sendMessage(Component.text(
-                        "Wystąpił błąd podczas łączenia z serwerem gry.",
+                        "Nie udało się połączyć z serwerem gry. Spróbuj ponownie.",
                         NamedTextColor.RED
                 ));
                 return false;
             }
         } catch (Exception e) {
-            logger.error("Krytyczny błąd podczas transferu gracza {}: {}",
-                    player.getUsername(), e.getMessage(), e);
+            if (logger.isErrorEnabled()) {
+                logger.error("Błąd podczas transferu gracza {} na serwer {}: {}",
+                        player.getUsername(), serverName, e.getMessage(), e);
+            }
 
             player.sendMessage(Component.text(
-                    "Wystąpił krytyczny błąd podczas transferu.",
+                    "Wystąpił błąd podczas łączenia z serwerem gry.",
                     NamedTextColor.RED
             ));
             return false;
@@ -562,19 +589,25 @@ public class ConnectionManager {
             String address = server.getServerInfo().getAddress().toString();
             logger.info("  - {} ({})", name, address);
         });
-        logger.info(messages.get("connection.picolimbo.server"), settings.getPicoLimboServerName());
+        if (logger.isInfoEnabled()) {
+            logger.info(messages.get("connection.picolimbo.server"), settings.getPicoLimboServerName());
+        }
 
         // Sprawdź czy PicoLimbo serwer istnieje
         Optional<RegisteredServer> picoLimbo = plugin.getServer()
                 .getServer(settings.getPicoLimboServerName());
 
         if (picoLimbo.isEmpty()) {
-            logger.error(messages.get("connection.picolimbo.error"),
+            if (logger.isErrorEnabled()) {
+                logger.error(messages.get("connection.picolimbo.error"),
                     settings.getPicoLimboServerName());
+            }
         } else {
-            logger.info(messages.get("connection.picolimbo.found"),
-                    settings.getPicoLimboServerName(),
-                    picoLimbo.get().getServerInfo().getAddress());
+            if (logger.isInfoEnabled()) {
+                logger.info(messages.get("connection.picolimbo.found"),
+                        settings.getPicoLimboServerName(),
+                        picoLimbo.get().getServerInfo().getAddress());
+            }
         }
     }
 

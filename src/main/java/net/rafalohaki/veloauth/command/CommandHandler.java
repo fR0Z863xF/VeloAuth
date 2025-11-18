@@ -99,11 +99,11 @@ public class CommandHandler {
     public void unregisterCommands() {
         var commandManager = plugin.getServer().getCommandManager();
 
-        commandManager.unregister("login");
-        commandManager.unregister("register");
-        commandManager.unregister("changepassword");
-        commandManager.unregister("unregister");
-        commandManager.unregister("vauth");
+        commandManager.unregister(COMMAND_LOGIN);
+        commandManager.unregister(COMMAND_REGISTER);
+        commandManager.unregister(COMMAND_CHANGE_PASSWORD);
+        commandManager.unregister(COMMAND_UNREGISTER);
+        commandManager.unregister(COMMAND_VAUTH);
 
         logger.info("Komendy wyrejestrowane");
     }
@@ -115,11 +115,10 @@ public class CommandHandler {
      * 3. Fetch player from database with error handling
      *
      * @param source     Command source
-     * @param args       Command arguments
      * @param commandName Name of the command for logging
      * @return AuthenticationContext if all checks pass, null otherwise
      */
-    private AuthenticationContext validateAndAuthenticatePlayer(CommandSource source, String[] args, String commandName) {
+    private AuthenticationContext validateAndAuthenticatePlayer(CommandSource source, String commandName) {
         Player player = CommandHelper.validatePlayerSource(source, messages);
         if (player == null) {
             return null;
@@ -218,14 +217,14 @@ public class CommandHandler {
             
             // Asynchroniczne logowanie z Virtual Threads
             CommandHelper.runAsyncCommand(() -> processLogin(source, password),
-                    messages, source, "error.database.query");
+                    messages, source, ERROR_DATABASE_QUERY);
         }
 
         private void processLogin(CommandSource source, String password) {
             Player player = (Player) source;
             
             // Use template method for common checks
-            AuthenticationContext authContext = validateAndAuthenticatePlayer(source, new String[]{password}, "login");
+            AuthenticationContext authContext = validateAndAuthenticatePlayer(source, "login");
             if (authContext == null) {
                 return;
             }
@@ -352,7 +351,7 @@ public class CommandHandler {
 
         private void processRegistration(Player player, String password) {
             // Use template method for common checks
-            AuthenticationContext authContext = validateAndAuthenticatePlayer(player, new String[]{password}, "registration");
+            AuthenticationContext authContext = validateAndAuthenticatePlayer((CommandSource) player, "registration");
             if (authContext == null) {
                 return;
             }
@@ -453,7 +452,7 @@ public class CommandHandler {
 
         private void processPasswordChange(Player player, String oldPassword, String newPassword) {
             // Use template method for common checks
-            AuthenticationContext authContext = validateAndAuthenticatePlayer(player, new String[]{oldPassword, newPassword}, "password change");
+            AuthenticationContext authContext = validateAndAuthenticatePlayer((CommandSource) player, "password change");
             if (authContext == null) {
                 return;
             }

@@ -744,7 +744,7 @@ public class DatabaseManager {
                 boolean postgres = DatabaseType.POSTGRESQL.getName().equalsIgnoreCase(config.getStorageType());
                 String auth = postgres ? "\"AUTH\"" : "AUTH";
                 String hash = postgres ? "\"HASH\"" : "HASH";
-                String sql = "SELECT COUNT(*) FROM " + auth + " WHERE " + hash + " IS NOT NULL";
+                String sql = "SELECT COUNT(*) FROM " + auth + WHERE_CLAUSE + hash + " IS NOT NULL";
 
                 DatabaseConnection dbConnection = connectionSource.getReadWriteConnection(null);
                 try {
@@ -1093,7 +1093,14 @@ public class DatabaseManager {
     
     /**
      * Buduje zapytanie SQL do liczenia wszystkich kont.
+     * 
+     * SECURITY NOTE: This method uses string concatenation but is SAFE from SQL injection
+     * because it only uses hardcoded constants (AUTH_TABLE, PREMIUM_TABLE, UUID_COLUMN, etc.)
+     * - No user input is concatenated into the query
+     * - All table/column names are internal constants defined in this class
+     * - The database type flag only controls quoting, not content
      */
+    @SuppressWarnings("java:S2077") // Safe: only hardcoded constants, no user input
     private String buildTotalAccountsQuery() {
         boolean postgres = isPostgreSQL();
         String auth = getTableName(AUTH_TABLE, postgres);
@@ -1109,7 +1116,14 @@ public class DatabaseManager {
     
     /**
      * Buduje zapytanie SQL do liczenia kont premium.
+     * 
+     * SECURITY NOTE: This method uses string concatenation but is SAFE from SQL injection
+     * because it only uses hardcoded constants (AUTH_TABLE, PREMIUM_TABLE, UUID_COLUMN, HASH_COLUMN)
+     * - No user input is concatenated into the query
+     * - All table/column names are internal constants defined in this class
+     * - The database type flag only controls quoting, not content
      */
+    @SuppressWarnings("java:S2077") // Safe: only hardcoded constants, no user input
     private String buildPremiumAccountsQuery() {
         boolean postgres = isPostgreSQL();
         String auth = getTableName(AUTH_TABLE, postgres);

@@ -11,6 +11,30 @@ permissions:
   contents: write
 
 jobs:
+  # Check if there are actual source code changes (excluding docs, workflows, etc.)
+  check-changes:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    outputs:
+      should-release: ${{ steps.changes.outputs.source-changed }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+        
+    - name: Check for source changes
+      id: changes
+      run: |
+        # Check if there are changes in source files (excluding docs, workflows, etc.)
+        if git diff --name-only HEAD~1 HEAD | grep -E '\.(java|xml|yml|yaml|json|properties)$' | grep -v -E '\.github/|README\.md|\.gitignore'; then
+          echo "source-changed=true" >> $GITHUB_OUTPUT
+          echo "Source code changes detected - will create release"
+        else
+          echo "source-changed=false" >> $GITHUB_OUTPUT
+          echo "No source code changes - skipping release"
+        fi
+
   build:
     runs-on: ubuntu-latest
     
@@ -42,12 +66,12 @@ jobs:
         retention-days: 30
         
     - name: Generate release notes
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) && (needs.check-changes.outputs.should-release == 'true' || startsWith(github.ref, 'refs/tags/'))
       run: |
         if [ "${{ github.ref_type }}" == "tag" ]; then
           VERSION="${{ github.ref_name }}"
         else
-          VERSION="latest-$(date +%Y%m%d-%H%M%S)"
+          VERSION="latest"
         fi
         
         # Get changelog from git commits since last tag
@@ -60,7 +84,7 @@ jobs:
         
         # If no commits, use default message
         if [ -z "$CHANGELOG" ]; then
-          CHANGELOG="- Initial release or maintenance update"
+          CHANGELOG="- Maintenance update and bug fixes"
         fi
         
         # Replace template variables
@@ -70,7 +94,7 @@ jobs:
         echo "Generated release notes for version: $VERSION"
         
     - name: Upload release notes
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) && (needs.check-changes.outputs.should-release == 'true' || startsWith(github.ref, 'refs/tags/'))
       uses: actions/upload-artifact@v4
       with:
         name: release-notes
@@ -78,9 +102,9 @@ jobs:
         retention-days: 30
         
   release:
-    needs: build
+    needs: [build, check-changes]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) && (needs.check-changes.outputs.should-release == 'true' || startsWith(github.ref, 'refs/tags/'))
     
     steps:
     - name: Checkout code
@@ -101,15 +125,21 @@ jobs:
         name: release-notes
         path: ./
         
-    - name: Create tag and version
+    - name: Create/update latest tag
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       run: |
-        VERSION="latest-$(date +%Y%m%d-%H%M%S)"
+        VERSION="latest"
         echo "VERSION=$VERSION" >> $GITHUB_ENV
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git tag -a "$VERSION" -m "Release $VERSION"
-        git push origin "$VERSION"
+        
+        # Force update existing latest tag or create new one
+        if git rev-parse -q --verify "refs/tags/latest" >/dev/null; then
+          git tag -d latest
+          git push origin :latest
+        fi
+        git tag -a "latest" -m "Release latest - $(date +%Y-%m-%d)"
+        git push origin "latest"
         
     - name: Set version from tag
       if: startsWith(github.ref, 'refs/tags/')
@@ -120,7 +150,7 @@ jobs:
       run: |
         mv veloauth-*.jar "veloauth-$VERSION.jar"
         
-    - name: Create Release
+    - name: Create or Update Release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.VERSION }}
@@ -128,6 +158,7 @@ jobs:
         body_path: release_notes.md
         draft: false
         prerelease: false
-        generate_release_notes: true
+        generate_release_notes: false
+        # This will update existing release if tag exists, or create new one
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

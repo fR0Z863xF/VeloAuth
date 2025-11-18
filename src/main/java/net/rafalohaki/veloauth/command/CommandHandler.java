@@ -11,6 +11,7 @@ import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
+import net.rafalohaki.veloauth.constants.StringConstants;
 import net.rafalohaki.veloauth.util.SecurityHelper;
 import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 import org.slf4j.Logger;
@@ -341,7 +342,7 @@ public class CommandHandler {
                     .exceptionally(throwable -> {
                         if (throwable instanceof java.util.concurrent.TimeoutException) {
                             logger.error("Timeout during registration for {}", player.getUsername());
-                            player.sendMessage(ValidationUtils.createErrorComponent("Timeout rejestracji - spróbuj ponownie"));
+                            player.sendMessage(ValidationUtils.createErrorComponent(StringConstants.REGISTRATION_TIMEOUT_MESSAGE));
                         } else {
                             logger.error("Błąd podczas asynchronicznej rejestracji gracza: " + player.getUsername(), throwable);
                             player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));

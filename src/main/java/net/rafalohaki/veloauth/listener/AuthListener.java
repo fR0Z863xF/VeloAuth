@@ -1,6 +1,7 @@
 package net.rafalohaki.veloauth.listener;
 
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.PostOrder;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
@@ -52,12 +53,12 @@ public class AuthListener {
     private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
 
     private final VeloAuth plugin;
-    private final ConnectionManager connectionManager;
+    private ConnectionManager connectionManager;
     private final AuthCache authCache;
     private final Settings settings;
     private final Logger logger;
-    private final PremiumResolverService premiumResolverService;
-    private final DatabaseManager databaseManager;
+    private PremiumResolverService premiumResolverService;
+    private DatabaseManager databaseManager;
     private final Messages messages;
 
     /**
@@ -92,6 +93,24 @@ public class AuthListener {
     }
 
     /**
+     * Updates dependencies after full initialization.
+     * This allows the AuthListener to be registered early for PreLogin protection,
+     * then receive full dependencies when initialization completes.
+     *
+     * @param connectionManager      Manager połączeń (może być null przy wczesnej rejestracji)
+     * @param premiumResolverService Premium resolver service (może być null przy wczesnej rejestracji)
+     * @param databaseManager        Manager bazy danych (może być null przy wczesnej rejestracji)
+     */
+    public void updateDependencies(ConnectionManager connectionManager,
+                                  PremiumResolverService premiumResolverService,
+                                  DatabaseManager databaseManager) {
+        this.connectionManager = connectionManager;
+        this.premiumResolverService = premiumResolverService;
+        this.databaseManager = databaseManager;
+        logger.info("AuthListener dependencies updated successfully");
+    }
+
+    /**
      * Resolves the block reason for unauthorized connections.
      * Replaces nested ternary with clear if/else logic.
      *
@@ -114,16 +133,27 @@ public class AuthListener {
      * Tutaj sprawdzamy premium PRZED weryfikacją UUID!
      * Jeśli premium → forceOnlineMode() = Velocity zweryfikuje
      * <p>
-     * PRIORYTET 100 - wykonuje się przed innymi pluginami
+     * PRIORYTET 100 + PostOrder.FIRST - wykonuje się PRZED innymi pluginami
      * <p>
      * UWAGA: PreLoginEvent WYMAGA synchronicznej odpowiedzi.
      * Premium resolution na cache miss blokuje, ale to ograniczenie API Velocity.
      * Dwa warstwy cache (AuthCache + PremiumResolverService) minimalizują impact.
      */
-    @Subscribe(priority = 100)
+    @Subscribe(priority = 100, order = PostOrder.FIRST)
     public void onPreLogin(PreLoginEvent event) {
         String username = event.getUsername();
         logger.info("\uD83D\uDD0D PreLogin: {}", username);
+
+        // CRITICAL: Block connections until plugin is fully initialized
+        if (!plugin.isInitialized()) {
+            logger.warn("🔒 BLOKADA STARTU: Gracz {} próbował połączyć się przed pełną inicjalizacją VeloAuth - blokada PreLogin",
+                    username);
+            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                    Component.text("VeloAuth się uruchamia. Spróbuj połączyć się ponownie za chwilę.",
+                            NamedTextColor.RED)
+            ));
+            return;
+        }
 
         // WALIDACJA USERNAME - sprawdź format przed cokolwiek innego
         if (!isValidUsername(username)) {
@@ -216,9 +246,9 @@ public class AuthListener {
      * Obsługuje event logowania gracza.
      * Sprawdza brute force i premium status SYNCHRONICZNIE.
      * <p>
-     * PRIORYTET 100 - wykonuje się przed innymi pluginami
+     * PRIORYTET 100 + PostOrder.FIRST - wykonuje się przed innymi pluginami
      */
-    @Subscribe(priority = 100)
+    @Subscribe(priority = 100, order = PostOrder.FIRST)
     public void onLogin(LoginEvent event) {
         Player player = event.getPlayer();
         String playerName = player.getUsername();
@@ -379,9 +409,9 @@ public class AuthListener {
      * Obsługuje event przed połączeniem z serwerem.
      * Blokuje nieautoryzowane połączenia z serwerami backend.
      * <p>
-     * PRIORYTET 200 - FIRST priority
+     * PRIORYTET 200 + PostOrder.FIRST - FIRST priority przed innymi pluginami
      */
-    @Subscribe(priority = 200)
+    @Subscribe(priority = 200, order = PostOrder.FIRST)
     public void onServerPreConnect(ServerPreConnectEvent event) {
         try {
             Player player = event.getPlayer();

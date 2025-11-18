@@ -251,7 +251,16 @@ public class ConnectionManager {
 
             // Asynchroniczne sprawdzenie czy konto istnieje i wyświetlenie odpowiedniego komunikatu
             CompletableFuture<Void> messageFuture = databaseManager.findPlayerByNickname(player.getUsername())
-                    .thenAccept(existingPlayer -> {
+                    .thenAccept(dbResult -> {
+                        // CRITICAL: Handle DbResult properly - don't unwrap incorrectly
+                        if (dbResult.isDatabaseError()) {
+                            logger.warn("Database error while checking account for {}: {}", 
+                                    player.getUsername(), dbResult.getErrorMessage());
+                            sendGenericAuthMessage(player);
+                            return;
+                        }
+                        
+                        RegisteredPlayer existingPlayer = dbResult.getValue();
                         if (existingPlayer != null) {
                             // Konto istnieje - pokazuj komunikat logowania
                             sendLoginMessage(player);

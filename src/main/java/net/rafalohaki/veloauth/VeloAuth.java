@@ -17,6 +17,7 @@ import net.rafalohaki.veloauth.database.DatabaseType;
 import net.rafalohaki.veloauth.exception.VeloAuthException;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.listener.AuthListener;
+import net.rafalohaki.veloauth.listener.EarlyLoginBlocker;
 import net.rafalohaki.veloauth.premium.PremiumResolverService;
 import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 import org.slf4j.Logger;
@@ -99,6 +100,18 @@ public class VeloAuth {
             logger.debug("Java: {}, Virtual Threads: {}",
                     System.getProperty("java.version"),
                     Thread.currentThread().isVirtual() ? "Available" : "Unavailable");
+        }
+
+        // CRITICAL: Register early PreLogin blocker BEFORE starting async initialization
+        // This prevents players from connecting before authentication handlers are ready
+        logger.info("Registering early PreLogin blocker for initialization protection...");
+        try {
+            EarlyLoginBlocker earlyBlocker = new EarlyLoginBlocker(this);
+            server.getEventManager().register(this, earlyBlocker);
+            logger.info("✅ EarlyLoginBlocker registered BEFORE initialization - PreLogin protection active");
+        } catch (Exception e) {
+            logger.error("Failed to register early PreLogin blocker", e);
+            return;
         }
 
         // Inicjalizacja asynchroniczna z Virtual Threads
@@ -195,10 +208,11 @@ public class VeloAuth {
             logger.info(messages.get("plugin.initialization.init_premium_resolver"));
             premiumResolverService = new PremiumResolverService(logger, settings, databaseManager.getPremiumUuidDao());
 
-            // 8. Rejestracja event listener
+            // 8. Rejestracja pełnego AuthListener z wszystkimi zależnościami
             logger.info(messages.get("plugin.initialization.registering_listeners"));
             authListener = new AuthListener(this, connectionManager, authCache, settings, premiumResolverService, databaseManager, messages);
             server.getEventManager().register(this, authListener);
+            logger.info("✅ Full AuthListener registered after initialization");
 
             // 9. Debug serwerów (zgodnie z notes.txt)
             connectionManager.debugServers();

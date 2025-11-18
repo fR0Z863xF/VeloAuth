@@ -140,8 +140,7 @@ public class ConnectionManager {
     private boolean verifyAndTransferToBackend(Player player, CachedAuthUser cachedUser) {
         try {
             // Sprawdź w bazie danych dla bezpieczeństwa
-            String lowercaseNick = player.getUsername().toLowerCase();
-            var dbResult = databaseManager.findPlayerByNickname(lowercaseNick).join();
+            var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
 
             // CRITICAL: Fail-secure on database errors
             if (dbResult.isDatabaseError()) {
@@ -251,8 +250,7 @@ public class ConnectionManager {
             }
 
             // Asynchroniczne sprawdzenie czy konto istnieje i wyświetlenie odpowiedniego komunikatu
-            String lowercaseNick = player.getUsername().toLowerCase();
-            CompletableFuture<Void> messageFuture = databaseManager.findPlayerByNickname(lowercaseNick)
+            CompletableFuture<Void> messageFuture = databaseManager.findPlayerByNickname(player.getUsername())
                     .thenAccept(existingPlayer -> {
                         if (existingPlayer != null) {
                             // Konto istnieje - pokazuj komunikat logowania

@@ -109,6 +109,16 @@ public class VeloAuth {
                         logger.error("Error during VeloAuth initialization", throwable);
                         shutdown();
                     } else {
+                        // Clear any stale cache entries from previous server runs
+                        if (databaseManager != null) {
+                            databaseManager.clearCache();
+                            logger.info("Cleared stale database cache entries");
+                        }
+                        if (authCache != null) {
+                            authCache.clearAll();
+                            logger.info("Cleared stale authentication cache entries");
+                        }
+                        
                         initialized = true;
                         logger.info(messages.get("plugin.initialization.ready"));
                         logStartupInfo();

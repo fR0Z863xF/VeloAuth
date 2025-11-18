@@ -580,8 +580,6 @@ public class AuthListener {
      */
     private boolean verifyPlayerUuid(Player player) {
         try {
-            String lowercaseNick = player.getUsername().toLowerCase();
-
             // Jeśli gracz jest online mode (premium), pomijamy weryfikację UUID z bazą
             // Ponieważ premium players nie muszą być w bazie danych
             if (player.isOnlineMode()) {
@@ -592,7 +590,7 @@ public class AuthListener {
             // Dla cracked players, zweryfikuj UUID z bazą danych
             return CompletableFuture.supplyAsync(() -> {
                 try {
-                    var dbResult = databaseManager.findPlayerByNickname(lowercaseNick).join();
+                    var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
 
                     // CRITICAL: Fail-secure on database errors
                     if (dbResult.isDatabaseError()) {

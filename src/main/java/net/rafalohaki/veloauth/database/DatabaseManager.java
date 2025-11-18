@@ -683,6 +683,128 @@ public class DatabaseManager {
     }
 
     /**
+     * Zwraca całkowitą liczbę unikalnych kont (AUTH ∪ PREMIUM_UUIDS).
+     */
+    public CompletableFuture<Integer> getTotalRegisteredAccounts() {
+        return CompletableFuture.supplyAsync(() -> {
+            if (!connected) {
+                if (logger.isWarnEnabled()) {
+                    logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED);
+                }
+                return 0;
+            }
+            try {
+                boolean postgres = DatabaseType.POSTGRESQL.getName().equalsIgnoreCase(config.getStorageType());
+                String auth = postgres ? "\"AUTH\"" : "AUTH";
+                String premium = postgres ? "\"PREMIUM_UUIDS\"" : "PREMIUM_UUIDS";
+                String uuid = postgres ? "\"UUID\"" : "UUID";
+                String sql = "SELECT COUNT(DISTINCT uuid) FROM (" +
+                        " SELECT " + uuid + " AS uuid FROM " + auth + " WHERE " + uuid + " IS NOT NULL " +
+                        " UNION " +
+                        " SELECT " + uuid + " AS uuid FROM " + premium +
+                        ") AS combined_uuids";
+
+                DatabaseConnection dbConnection = connectionSource.getReadWriteConnection(null);
+                try {
+                    java.sql.Connection connection = dbConnection.getUnderlyingConnection();
+                    try (java.sql.Statement stmt = connection.createStatement();
+                         java.sql.ResultSet rs = stmt.executeQuery(sql)) {
+                        if (rs.next()) {
+                            return rs.getInt(1);
+                        }
+                        return 0;
+                    }
+                } finally {
+                    connectionSource.releaseConnection(dbConnection);
+                }
+            } catch (SQLException e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error(DB_MARKER, "Error counting total accounts", e);
+                }
+                return 0;
+            }
+        }, dbExecutor);
+    }
+
+    /**
+     * Zwraca liczbę kont premium (AUTH z HASH NULL ∪ PREMIUM_UUIDS).
+     */
+    public CompletableFuture<Integer> getTotalPremiumAccounts() {
+        return CompletableFuture.supplyAsync(() -> {
+            if (!connected) {
+                return 0;
+            }
+            try {
+                boolean postgres = DatabaseType.POSTGRESQL.getName().equalsIgnoreCase(config.getStorageType());
+                String auth = postgres ? "\"AUTH\"" : "AUTH";
+                String premium = postgres ? "\"PREMIUM_UUIDS\"" : "PREMIUM_UUIDS";
+                String uuid = postgres ? "\"UUID\"" : "UUID";
+                String hash = postgres ? "\"HASH\"" : "HASH";
+                String sql = "SELECT COUNT(DISTINCT uuid) FROM (" +
+                        " SELECT " + uuid + " AS uuid FROM " + auth + " WHERE " + hash + " IS NULL " +
+                        " UNION " +
+                        " SELECT " + uuid + " AS uuid FROM " + premium +
+                        ") AS premium";
+
+                DatabaseConnection dbConnection = connectionSource.getReadWriteConnection(null);
+                try {
+                    java.sql.Connection connection = dbConnection.getUnderlyingConnection();
+                    try (java.sql.Statement stmt = connection.createStatement();
+                         java.sql.ResultSet rs = stmt.executeQuery(sql)) {
+                        if (rs.next()) {
+                            return rs.getInt(1);
+                        }
+                        return 0;
+                    }
+                } finally {
+                    connectionSource.releaseConnection(dbConnection);
+                }
+            } catch (SQLException e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error(DB_MARKER, "Error counting premium accounts", e);
+                }
+                return 0;
+            }
+        }, dbExecutor);
+    }
+
+    /**
+     * Zwraca liczbę kont non-premium (AUTH z HASH NOT NULL).
+     */
+    public CompletableFuture<Integer> getTotalNonPremiumAccounts() {
+        return CompletableFuture.supplyAsync(() -> {
+            if (!connected) {
+                return 0;
+            }
+            try {
+                boolean postgres = DatabaseType.POSTGRESQL.getName().equalsIgnoreCase(config.getStorageType());
+                String auth = postgres ? "\"AUTH\"" : "AUTH";
+                String hash = postgres ? "\"HASH\"" : "HASH";
+                String sql = "SELECT COUNT(*) FROM " + auth + " WHERE " + hash + " IS NOT NULL";
+
+                DatabaseConnection dbConnection = connectionSource.getReadWriteConnection(null);
+                try {
+                    java.sql.Connection connection = dbConnection.getUnderlyingConnection();
+                    try (java.sql.Statement stmt = connection.createStatement();
+                         java.sql.ResultSet rs = stmt.executeQuery(sql)) {
+                        if (rs.next()) {
+                            return rs.getInt(1);
+                        }
+                        return 0;
+                    }
+                } finally {
+                    connectionSource.releaseConnection(dbConnection);
+                }
+            } catch (SQLException e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error(DB_MARKER, "Error counting non-premium accounts", e);
+                }
+                return 0;
+            }
+        }, dbExecutor);
+    }
+
+    /**
      * Zwraca konfigurację bazy danych.
      *
      * @return DatabaseConfig

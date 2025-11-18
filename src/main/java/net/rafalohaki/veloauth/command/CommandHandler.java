@@ -663,15 +663,32 @@ public class CommandHandler {
                     }
                 }
                 case "stats" -> {
-                    var stats = authCache.getStats();
+                    var cacheStats = authCache.getStats();
                     CommandHelper.sendWarning(source, messages.get("admin.stats.header"));
-                    CommandHelper.sendWarning(source, messages.get("admin.stats.registered_accounts", stats.authorizedPlayersCount()));
-                    CommandHelper.sendWarning(source, messages.get(ADMIN_STATS_CACHE_SIZE, stats.bruteForceEntriesCount()));
-                    CommandHelper.sendWarning(source, messages.get(ADMIN_STATS_CACHE_SIZE, stats.premiumCacheCount()));
+
+                    var totalF = databaseManager.getTotalRegisteredAccounts();
+                    var premiumF = databaseManager.getTotalPremiumAccounts();
+                    var nonPremiumF = databaseManager.getTotalNonPremiumAccounts();
+
+                    java.util.concurrent.CompletableFuture.allOf(totalF, premiumF, nonPremiumF).join();
+                    int total = totalF.join();
+                    int premium = premiumF.join();
+                    int nonPremium = nonPremiumF.join();
+                    double pct = total > 0 ? (premium * 100.0 / total) : 0.0;
+
+                    CommandHelper.sendWarning(source, messages.get("admin.stats.total_accounts", total));
+                    CommandHelper.sendWarning(source, messages.get("admin.stats.premium_accounts", premium));
+                    CommandHelper.sendWarning(source, messages.get("admin.stats.nonpremium_accounts", nonPremium));
+                    CommandHelper.sendWarning(source, messages.get("admin.stats.premium_percentage", pct));
+
+                    // Cache stats
+                    CommandHelper.sendWarning(source, messages.get(ADMIN_STATS_CACHE_SIZE, cacheStats.authorizedPlayersCount()));
+                    CommandHelper.sendWarning(source, messages.get(ADMIN_STATS_CACHE_SIZE, cacheStats.premiumCacheCount()));
                     CommandHelper.sendWarning(source, messages.get(ADMIN_STATS_CACHE_SIZE, databaseManager.getCacheSize()));
-                    CommandHelper.sendWarning(source, messages.get("admin.stats.database_status", String.format("%.1f%%", stats.getHitRate())));
-                    CommandHelper.sendWarning(source, messages.get("admin.stats.registered_accounts", stats.getTotalRequests()));
-                    CommandHelper.sendWarning(source, messages.get("admin.stats.database_status", databaseManager.isConnected() ? messages.get("database.connected") : messages.get("database.disconnected")));
+
+                    // Database status
+                    String dbStatus = databaseManager.isConnected() ? messages.get("database.connected") : messages.get("database.disconnected");
+                    CommandHelper.sendWarning(source, messages.get("admin.stats.database_status", (Object) dbStatus));
                 }
                 default -> sendAdminHelp(source);
             }

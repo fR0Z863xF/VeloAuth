@@ -501,27 +501,14 @@ public class AuthCache {
             return;
         }
 
-        try {
-            cacheLock.lock();
-            try {
-                // Sprawdź limit rozmiaru sesji
-                if (activeSessions.size() >= maxSessions && !activeSessions.containsKey(uuid)) {
-                    // Usuń najstarszą sesję
-                    removeOldestSession();
-                }
+        if (activeSessions.size() >= maxSessions && !activeSessions.containsKey(uuid)) {
+            evictOldestSessionAtomic();
+        }
 
-                ActiveSession session = new ActiveSession(uuid, nickname, ip);
-                activeSessions.put(uuid, session);
-                if (logger.isDebugEnabled()) {
-                    logger.debug(messages.get("cache.debug.session.started"), nickname, uuid, ip);
-                }
-
-            } finally {
-                cacheLock.unlock();
-            }
-
-        } catch (IllegalStateException e) {
-            logger.error(messages.get("cache.error.state.start_session") + uuid, e);
+        ActiveSession session = new ActiveSession(uuid, nickname, ip);
+        activeSessions.put(uuid, session);
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("cache.debug.session.started"), nickname, uuid, ip);
         }
     }
 
@@ -693,29 +680,12 @@ public class AuthCache {
     /**
      * Usuwa najstarszą aktywną sesję przy przekroczeniu limitu.
      */
-    private void removeOldestSession() {
-        if (activeSessions.isEmpty()) {
-            return;
-        }
-
-        // Znajdź najstarszą sesję
-        UUID oldestUuid = null;
-        long oldestTime = Long.MAX_VALUE;
-
-        for (Map.Entry<UUID, ActiveSession> entry : activeSessions.entrySet()) {
-            long sessionTime = entry.getValue().getSessionStartTime();
-            if (sessionTime < oldestTime) {
-                oldestTime = sessionTime;
-                oldestUuid = entry.getKey();
-            }
-        }
-
-        if (oldestUuid != null) {
-            ActiveSession removed = activeSessions.remove(oldestUuid);
-            if (removed != null) {
-                logger.debug("Usunięto najstarszą sesję: {} (UUID: {})",
-                        removed.getNickname(), oldestUuid);
-            }
+    private void evictOldestSessionAtomic() {
+        var oldest = activeSessions.entrySet().stream()
+                .min(java.util.Comparator.comparingLong(e -> e.getValue().getSessionStartTime()))
+                .orElse(null);
+        if (oldest != null) {
+            activeSessions.remove(oldest.getKey(), oldest.getValue());
         }
     }
 

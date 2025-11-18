@@ -82,32 +82,7 @@ jobs:
         name: veloauth-jar
         path: ./
         
-    - name: Generate release notes
-      run: |
-        if [ "${{ github.ref_type }}" == "tag" ]; then
-          VERSION="${{ github.ref_name }}"
-        else
-          VERSION="latest"
-        fi
-        
-        # Get changelog from git commits since last tag
-        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-        if [ -n "$LAST_TAG" ]; then
-          CHANGELOG=$(git log $LAST_TAG..HEAD --pretty=format:"- %s" | head -20)
-        else
-          CHANGELOG=$(git log --pretty=format:"- %s" | head -20)
-        fi
-        
-        # If no commits, use default message
-        if [ -z "$CHANGELOG" ]; then
-          CHANGELOG="- Maintenance update and bug fixes"
-        fi
-        
-        # Replace template variables
-        sed "s/{{VERSION}}/$VERSION/g" .github/RELEASE_TEMPLATE.md | \
-        sed "s/{{CHANGELOG}}/$CHANGELOG/g" > release_notes.md
-        
-        echo "Generated release notes for version: $VERSION"
+    
         
     - name: Create/update latest tag
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -139,10 +114,8 @@ jobs:
       with:
         tag_name: ${{ env.VERSION }}
         files: veloauth-*.jar
-        body_path: release_notes.md
         draft: false
         prerelease: false
-        generate_release_notes: false
-        # This will update existing release if tag exists, or create new one
+        generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -249,6 +249,8 @@ public class RegisteredPlayer {
      *
      * @return false - premium status should be checked through DatabaseManager
      * @deprecated Use DatabaseManager.isPremium(nickname) instead - this method doesn't have access to PREMIUM_UUIDS table
+     * NOTE: This method is still used throughout the codebase during migration. 
+     * Do not remove until all callers are updated to use DatabaseManager.isPremium().
      */
     @Deprecated(since = "1.0.0", forRemoval = true)
     public boolean isPremium() {

@@ -11,6 +11,7 @@ import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
+import net.rafalohaki.veloauth.util.SecurityHelper;
 import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 import org.slf4j.Logger;
 import org.slf4j.Marker;
@@ -136,14 +137,15 @@ public class CommandHandler {
 
             // Sprawdź IP-based rate limiting PRZED sprawdzeniem autoryzacji
             InetAddress playerAddress = ValidationUtils.getPlayerAddress(player);
-            if (playerAddress != null && ipRateLimiter.isRateLimited(playerAddress)) {
+            SecurityHelper.SecurityContext securityContext = new SecurityHelper.SecurityContext(
+                    ipRateLimiter, authCache, playerAddress, logger, SECURITY_MARKER, 
+                    player.getUsername(), "logowania"
+            );
+            
+            SecurityHelper.SecurityCheckResult securityResult = SecurityHelper.performSecurityChecks(securityContext);
+            if (!securityResult.passed()) {
                 player.sendMessage(ValidationUtils.createErrorComponent(messages.get(messages.getCurrentLanguage(), "auth.login.too_many_attempts", "5")));
-                logger.warn(SECURITY_MARKER, "IP {} zablokowany za rate limiting ({} prób w 5 min)",
-                        playerAddress.getHostAddress(), ipRateLimiter.getAttempts(playerAddress));
                 return;
-            }
-            if (playerAddress != null) {
-                ipRateLimiter.incrementAttempts(playerAddress);
             }
 
             // Sprawdź czy gracz już jest autoryzowany
@@ -307,14 +309,15 @@ public class CommandHandler {
 
             // Sprawdź IP-based rate limiting dla rejestracji
             InetAddress playerAddress = ValidationUtils.getPlayerAddress(player);
-            if (playerAddress != null && ipRateLimiter.isRateLimited(playerAddress)) {
+            SecurityHelper.SecurityContext securityContext = new SecurityHelper.SecurityContext(
+                    ipRateLimiter, authCache, playerAddress, logger, SECURITY_MARKER, 
+                    player.getUsername(), "rejestracji"
+            );
+            
+            SecurityHelper.SecurityCheckResult securityResult = SecurityHelper.performSecurityChecks(securityContext);
+            if (!securityResult.passed()) {
                 player.sendMessage(ValidationUtils.createErrorComponent(messages.get(messages.getCurrentLanguage(), "auth.login.too_many_attempts", "5")));
-                logger.warn("IP {} zablokowany za rate limiting podczas rejestracji ({} prób)",
-                        playerAddress.getHostAddress(), ipRateLimiter.getAttempts(playerAddress));
                 return;
-            }
-            if (playerAddress != null) {
-                ipRateLimiter.incrementAttempts(playerAddress);
             }
 
             // Walidacja hasła
@@ -359,98 +362,108 @@ public class CommandHandler {
             }
 
             try {
-                String lowercaseNick = player.getUsername().toLowerCase();
-
-                // Uruchom wszystko w transakcji dla atomowości
-                // skipcq: JAVA-W1087 - Future handled with whenComplete, fire-and-forget operation
-                databaseManager.executeInTransaction(() -> {
-                    // 1. Sprawdź czy gracz już istnieje
-                    var existingResult = databaseManager.findPlayerByNickname(lowercaseNick).join();
-                    
-                    // CRITICAL: Fail-secure on database errors
-                    if (existingResult.isDatabaseError()) {
-                        logger.error(SECURITY_MARKER, "[DATABASE ERROR] Registration check failed for {}: {}", 
-                                player.getUsername(), existingResult.getErrorMessage());
-                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
-                        return false;
-                    }
-
-                    RegisteredPlayer existingPlayer = existingResult.getValue();
-                    if (existingPlayer != null) {
-                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.register.already_registered")));
-                        return false;
-                    }
-
-                    // 2. Stwórz nowego gracza z hashem BCrypt
-                    String hashedPassword = BCrypt.with(BCrypt.Version.VERSION_2Y)
-                            .hashToString(settings.getBcryptCost(), password.toCharArray());
-
-                    RegisteredPlayer newPlayer = new RegisteredPlayer(
-                            player.getUsername(),
-                            hashedPassword,
-                            ValidationUtils.getPlayerIp(player),
-                            player.getUniqueId().toString()
-                    );
-
-                    // 3. Zapisz do bazy danych
-                    var saveResult = databaseManager.savePlayer(newPlayer).join();
-                    
-                    // CRITICAL: Fail-secure on database errors
-                    if (saveResult.isDatabaseError()) {
-                        logger.error(SECURITY_MARKER, "[DATABASE ERROR] Failed to save new player {}: {}", 
-                                player.getUsername(), saveResult.getErrorMessage());
-                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
-                        return false;
-                    }
-                    
-                    if (!saveResult.getValue()) {
-                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
-                        logger.error(DB_MARKER, "Nie udało się zapisać nowego gracza: {}", lowercaseNick);
-                        return false;
-                    }
-
-                    // 4. Resetuj próby brute force przy sukcesie
-                    if (playerAddress != null) {
-                        authCache.resetLoginAttempts(playerAddress);
-                        ipRateLimiter.reset(playerAddress);
-                    }
-
-                    player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.register.success")));
-                    logger.info(AUTH_MARKER, "Gracz {} zarejestrował się z IP {}",
-                            player.getUsername(), ValidationUtils.getPlayerIp(player));
-
-                    // 5. Auto-login po rejestracji - dodaj do cache autoryzacji
-                    var premiumResult = databaseManager.isPremium(player.getUsername()).join();
-                    
-                    // CRITICAL: Fail-secure on database errors
-                    if (premiumResult.isDatabaseError()) {
-                        logger.error(SECURITY_MARKER, "[DATABASE ERROR] Failed to check premium status for {}: {}", 
-                                player.getUsername(), premiumResult.getErrorMessage());
-                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
-                        return false;
-                    }
-                    
-                    boolean isPremium = premiumResult.getValue();
-                    CachedAuthUser cachedUser = CachedAuthUser.fromRegisteredPlayer(newPlayer, isPremium);
-                    authCache.addAuthorizedPlayer(player.getUniqueId(), cachedUser);
-                    authCache.startSession(player.getUniqueId(), player.getUsername(), ValidationUtils.getPlayerIp(player));
-
-                    // 6. Transfer na backend server (poza transakcją)
-                    plugin.getConnectionManager().transferToBackend(player);
-
-                    return true;
-
-                }).whenComplete((success, throwable) -> {
-                    if (throwable != null) {
-                        logger.error("Błąd transakcji rejestracji: " + player.getUsername(), throwable);
-                        player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
-                    }
-                });
-
+                executeRegistrationTransaction(player, password, playerAddress);
             } catch (Exception e) {
                 logger.error(DB_MARKER, "Błąd podczas rejestracji gracza: " + player.getUsername(), e);
                 player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
             }
+        }
+
+        /**
+         * Executes the registration database transaction with all necessary steps.
+         * 
+         * @param player Player to register
+         * @param password Plain password to hash and store
+         * @param playerAddress Player's IP for security checks
+         */
+        private void executeRegistrationTransaction(Player player, String password, InetAddress playerAddress) {
+            String lowercaseNick = player.getUsername().toLowerCase();
+
+            // Uruchom wszystko w transakcji dla atomowości
+            // skipcq: JAVA-W1087 - Future handled with whenComplete, fire-and-forget operation
+            databaseManager.executeInTransaction(() -> {
+                // 1. Check if player already exists
+                var existingResult = databaseManager.findPlayerByNickname(lowercaseNick).join();
+                
+                // CRITICAL: Fail-secure on database errors
+                if (existingResult.isDatabaseError()) {
+                    logger.error(SECURITY_MARKER, "[DATABASE ERROR] Registration check failed for {}: {}", 
+                            player.getUsername(), existingResult.getErrorMessage());
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+                    return false;
+                }
+
+                RegisteredPlayer existingPlayer = existingResult.getValue();
+                if (existingPlayer != null) {
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.register.already_registered")));
+                    return false;
+                }
+
+                // 2. Create new player with BCrypt hash
+                String hashedPassword = BCrypt.with(BCrypt.Version.VERSION_2Y)
+                        .hashToString(settings.getBcryptCost(), password.toCharArray());
+
+                RegisteredPlayer newPlayer = new RegisteredPlayer(
+                        player.getUsername(),
+                        hashedPassword,
+                        ValidationUtils.getPlayerIp(player),
+                        player.getUniqueId().toString()
+                );
+
+                // 3. Save to database
+                var saveResult = databaseManager.savePlayer(newPlayer).join();
+                
+                // CRITICAL: Fail-secure on database errors
+                if (saveResult.isDatabaseError()) {
+                    logger.error(SECURITY_MARKER, "[DATABASE ERROR] Failed to save new player {}: {}", 
+                            player.getUsername(), saveResult.getErrorMessage());
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+                    return false;
+                }
+                
+                if (!saveResult.getValue()) {
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+                    logger.error(DB_MARKER, "Nie udało się zapisać nowego gracza: {}", lowercaseNick);
+                    return false;
+                }
+
+                // 4. Reset brute force attempts on success
+                if (playerAddress != null) {
+                    authCache.resetLoginAttempts(playerAddress);
+                    ipRateLimiter.reset(playerAddress);
+                }
+
+                player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.register.success")));
+                logger.info(AUTH_MARKER, "Gracz {} zarejestrował się z IP {}",
+                        player.getUsername(), ValidationUtils.getPlayerIp(player));
+
+                // 5. Auto-login after registration - add to auth cache
+                var premiumResult = databaseManager.isPremium(player.getUsername()).join();
+                
+                // CRITICAL: Fail-secure on database errors
+                if (premiumResult.isDatabaseError()) {
+                    logger.error(SECURITY_MARKER, "[DATABASE ERROR] Failed to check premium status for {}: {}", 
+                            player.getUsername(), premiumResult.getErrorMessage());
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+                    return false;
+                }
+                
+                boolean isPremium = premiumResult.getValue();
+                CachedAuthUser cachedUser = CachedAuthUser.fromRegisteredPlayer(newPlayer, isPremium);
+                authCache.addAuthorizedPlayer(player.getUniqueId(), cachedUser);
+                authCache.startSession(player.getUniqueId(), player.getUsername(), ValidationUtils.getPlayerIp(player));
+
+                // 6. Transfer to backend server (outside transaction)
+                plugin.getConnectionManager().transferToBackend(player);
+
+                return true;
+
+            }).whenComplete((success, throwable) -> {
+                if (throwable != null) {
+                    logger.error("Błąd transakcji rejestracji: " + player.getUsername(), throwable);
+                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+                }
+            });
         }
     }
 

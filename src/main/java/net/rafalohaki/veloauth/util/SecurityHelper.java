@@ -13,6 +13,20 @@ import java.net.InetAddress;
  */
 public final class SecurityHelper {
 
+    /**
+     * Security context containing all parameters needed for security checks.
+     * Reduces parameter count and improves maintainability.
+     */
+    public record SecurityContext(
+            IPRateLimiter ipRateLimiter,
+            AuthCache authCache,
+            InetAddress playerAddress,
+            Logger logger,
+            Marker securityMarker,
+            String playerName,
+            String operationType
+    ) {}
+
     private SecurityHelper() {
         // Utility class - prevent instantiation
     }
@@ -158,32 +172,25 @@ public final class SecurityHelper {
     /**
      * Performs comprehensive security checks for authentication operations.
      *
-     * @param ipRateLimiter  Rate limiter to check
-     * @param authCache      Auth cache for brute force checks
-     * @param playerAddress  Player's IP address
-     * @param logger         Logger for events
-     * @param securityMarker Security logging marker
-     * @param playerName     Player name
-     * @param playerIp       Player IP string
-     * @param operationType  Type of operation
+     * @param context Security context containing all required parameters
      * @return SecurityCheckResult with check outcomes
      */
-    public static SecurityCheckResult performSecurityChecks(
-            IPRateLimiter ipRateLimiter, AuthCache authCache, InetAddress playerAddress,
-            Logger logger, Marker securityMarker, String playerName, String playerIp, String operationType) {
+    public static SecurityCheckResult performSecurityChecks(SecurityContext context) {
 
         // Check rate limiting
-        if (checkRateLimit(ipRateLimiter, playerAddress, logger, securityMarker, playerName, operationType)) {
+        if (checkRateLimit(context.ipRateLimiter(), context.playerAddress(), context.logger(), 
+                context.securityMarker(), context.playerName(), context.operationType())) {
             return new SecurityCheckResult(false, "rate_limited", "Zablokowany za zbyt wiele prób");
         }
 
         // Check brute force protection
-        if (checkBruteForceBlock(authCache, playerAddress, logger, securityMarker, playerName, operationType)) {
+        if (checkBruteForceBlock(context.authCache(), context.playerAddress(), context.logger(), 
+                context.securityMarker(), context.playerName(), context.operationType())) {
             return new SecurityCheckResult(false, "brute_force_blocked", "Zablokowany za brute force");
         }
 
         // Increment rate limit counter
-        incrementRateLimit(ipRateLimiter, playerAddress);
+        incrementRateLimit(context.ipRateLimiter(), context.playerAddress());
 
         return new SecurityCheckResult(true, "passed", "Wszystkie kontrole bezpieczeństwa zakończone sukcesem");
     }

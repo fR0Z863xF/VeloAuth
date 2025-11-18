@@ -394,9 +394,7 @@ public class AuthListener {
 
             if (!isAuthorized || !hasActiveSession || !uuidMatches) {
                 // ❌ NIE AUTORYZOWANY LUB BRAK SESJI LUB UUID MISMATCH
-                String reason = !isAuthorized ? "nieautoryzowany" :
-                        !hasActiveSession ? "brak aktywnej sesji" :
-                                "UUID mismatch";
+                String reason = resolveBlockReason(isAuthorized, hasActiveSession, uuidMatches);
 
                 logger.warn(SECURITY_MARKER, messages.get("player.blocked.unauthorized"),
                         player.getUsername(), targetServerName, reason, playerIp);
@@ -612,6 +610,25 @@ public class AuthListener {
             authCache.endSession(player.getUniqueId());
             return false;
         }
+    }
+
+    /**
+     * Resolves the block reason for unauthorized connections.
+     * Replaces nested ternary with clear if/else logic.
+     *
+     * @param isAuthorized Whether player is authorized
+     * @param hasActiveSession Whether player has active session
+     * @param uuidMatches Whether UUID matches
+     * @return Human-readable reason string
+     */
+    private static String resolveBlockReason(boolean isAuthorized, boolean hasActiveSession, boolean uuidMatches) {
+        if (!isAuthorized) {
+            return "nieautoryzowany";
+        }
+        if (!hasActiveSession) {
+            return "brak aktywnej sesji";
+        }
+        return "UUID mismatch";
     }
 
     /**

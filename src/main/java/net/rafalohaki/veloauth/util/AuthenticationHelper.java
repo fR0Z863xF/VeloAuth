@@ -16,6 +16,36 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class AuthenticationHelper {
 
+    /**
+     * Authentication context containing parameters for registration operations.
+     * Reduces parameter count and improves maintainability.
+     */
+    public record AuthenticationContext(
+            DatabaseManager databaseManager,
+            String username,
+            String password,
+            String playerIp,
+            String playerUuid,
+            Settings settings,
+            Logger logger,
+            Marker dbMarker,
+            Messages messages
+    ) {}
+
+    /**
+     * Password change context containing parameters for password change operations.
+     */
+    public record PasswordChangeContext(
+            DatabaseManager databaseManager,
+            String username,
+            String oldPassword,
+            String newPassword,
+            Settings settings,
+            Logger logger,
+            Marker dbMarker,
+            Messages messages
+    ) {}
+
     private AuthenticationHelper() {
         // Utility class - prevent instantiation
     }
@@ -62,67 +92,57 @@ public final class AuthenticationHelper {
     /**
      * Performs complete registration flow with database operations.
      *
-     * @param databaseManager Database manager for operations
-     * @param username        Player's username
-     * @param password        Plain text password
-     * @param playerIp        Player's IP address
-     * @param playerUuid      Player's UUID
-     * @param settings        Plugin settings
-     * @param logger          Logger for events
-     * @param dbMarker        Database logging marker
+     * @param context Authentication context containing all required parameters
      * @return CompletableFuture containing the registered player or null if failed
      */
-    public static CompletableFuture<RegisteredPlayer> performRegistration(
-            DatabaseManager databaseManager, String username, String password,
-            String playerIp, String playerUuid, Settings settings,
-            Logger logger, Marker dbMarker, Messages messages) {
+    public static CompletableFuture<RegisteredPlayer> performRegistration(AuthenticationContext context) {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Check if player already exists
-                String lowercaseNick = username.toLowerCase();
-                var existingResult = databaseManager.findPlayerByNickname(lowercaseNick).join();
+                String lowercaseNick = context.username().toLowerCase();
+                var existingResult = context.databaseManager().findPlayerByNickname(lowercaseNick).join();
                 
                 // CRITICAL: Fail-secure on database errors
                 if (existingResult.isDatabaseError()) {
-                    logger.error(dbMarker, "Database error during registration check for {}: {}", 
-                            username, existingResult.getErrorMessage());
+                    context.logger().error(context.dbMarker(), "Database error during registration check for {}: {}", 
+                            context.username(), existingResult.getErrorMessage());
                     return null;
                 }
                 
                 RegisteredPlayer existingPlayer = existingResult.getValue();
                 if (existingPlayer != null) {
-                    logger.debug(dbMarker, messages.get("player.already_exists"), username);
+                    context.logger().debug(context.dbMarker(), context.messages().get("player.already_exists"), context.username());
                     return null;
                 }
 
                 // Hash password
-                String hashedPassword = hashPassword(password, settings);
+                String hashedPassword = hashPassword(context.password(), context.settings());
 
                 // Create new player
-                RegisteredPlayer newPlayer = createRegisteredPlayer(username, hashedPassword, playerIp, playerUuid);
+                RegisteredPlayer newPlayer = createRegisteredPlayer(context.username(), hashedPassword, context.playerIp(), context.playerUuid());
 
                 // Save to database
-                var saveResult = databaseManager.savePlayer(newPlayer).join();
+                var saveResult = context.databaseManager().savePlayer(newPlayer).join();
                 
                 // CRITICAL: Fail-secure on database errors
                 if (saveResult.isDatabaseError()) {
-                    logger.error(dbMarker, "Database error during registration save for {}: {}", 
-                            username, saveResult.getErrorMessage());
+                    context.logger().error(context.dbMarker(), "Database error during registration save for {}: {}", 
+                            context.username(), saveResult.getErrorMessage());
                     return null;
                 }
                 
                 boolean saved = saveResult.getValue();
                 if (!saved) {
-                    logger.error(dbMarker, messages.get("player.save.failed"), username);
+                    context.logger().error(context.dbMarker(), context.messages().get("player.save.failed"), context.username());
                     return null;
                 }
 
-                logger.info(dbMarker, messages.get("player.registered.success"), username);
+                context.logger().info(context.dbMarker(), context.messages().get("player.registered.success"), context.username());
                 return newPlayer;
 
             } catch (Exception e) {
-                logger.error(dbMarker, messages.get("player.registration.error"), username, e);
+                context.logger().error(context.dbMarker(), context.messages().get("player.registration.error"), context.username(), e);
                 return null;
             }
         });

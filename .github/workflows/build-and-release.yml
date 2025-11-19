@@ -95,11 +95,6 @@ jobs:
         if [ ! -s release_notes.txt ]; then
           echo "- No recent commits found." > release_notes.txt
         fi
-        {
-          echo "RELEASE_NOTES<<'EOF'"
-          cat release_notes.txt
-          echo "EOF"
-        } >> $GITHUB_ENV
         
     
         

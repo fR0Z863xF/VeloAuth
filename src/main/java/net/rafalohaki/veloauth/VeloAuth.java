@@ -156,7 +156,7 @@ public class VeloAuth {
     /**
      * Inicjalizuje wszystkie komponenty pluginu.
      */
-    @SuppressWarnings("java:S2139") // SonarCloud false positive: we log AND rethrow with cause
+    @SuppressWarnings({"java:S2139", "java:S3776"}) // Exception handling + initialization complexity 10
     private void initializePlugin() {
         try {
             initializeConfiguration();

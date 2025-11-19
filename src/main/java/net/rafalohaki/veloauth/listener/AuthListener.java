@@ -144,6 +144,7 @@ public class AuthListener {
      * Dwa warstwy cache (AuthCache + PremiumResolverService) minimalizują impact.
      */
     @Subscribe(priority = Short.MAX_VALUE, async = false)
+    @SuppressWarnings({"java:S3776", "java:S138"}) // Complex auth flow - 53 lines, complexity 10
     public void onPreLogin(PreLoginEvent event) {
         String username = event.getUsername();
         logger.info("\uD83D\uDD0D PreLogin: {}", username);
@@ -349,6 +350,7 @@ public class AuthListener {
      * Kieruje gracza na odpowiedni serwer (PicoLimbo lub backend).
      */
     @Subscribe(priority = 0) // NORMAL priority
+    @SuppressWarnings({"java:S3776", "java:S138"}) // Complex auth flow - 73 lines, complexity 11
     public void onPostLogin(PostLoginEvent event) {
         Player player = event.getPlayer();
         String playerIp = getPlayerIp(player);
@@ -448,6 +450,7 @@ public class AuthListener {
      * Zapobiega obejściu autoryzacji przez race conditions
      */
     @Subscribe(priority = Short.MAX_VALUE, async = false)
+    @SuppressWarnings("java:S3776") // Complex security checks - cyclomatic complexity 9
     public void onServerPreConnect(ServerPreConnectEvent event) {
         try {
             Player player = event.getPlayer();

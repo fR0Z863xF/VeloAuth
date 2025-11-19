@@ -7,9 +7,19 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Unit tests for IPRateLimiter.
@@ -161,7 +171,9 @@ class IPRateLimiterTest {
         }
 
         // Wait for all threads to complete
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        @SuppressWarnings("java:S2699") // assertTrue with timeout is the assertion for this concurrent test
+        boolean completed = latch.await(5, TimeUnit.SECONDS);
+        assertTrue(completed);
 
         // Wait for all futures to complete with timeout
         for (Future<?> future : futures) {

@@ -87,6 +87,7 @@ public class MetricsCollector {
      * Generates Prometheus-compatible metrics output.
      * Format follows Prometheus exposition format specification.
      */
+    @SuppressWarnings("java:S138") // Prometheus metrics formatting - 73 lines, standard format
     public String generatePrometheusMetrics() {
         StringBuilder metrics = new StringBuilder();
 

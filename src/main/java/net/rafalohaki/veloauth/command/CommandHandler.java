@@ -30,6 +30,7 @@ public class CommandHandler {
     // Stałe dla nazw komend
     private static final String COMMAND_LOGIN = "login";
     private static final String COMMAND_REGISTER = "register";
+    @SuppressWarnings("java:S2068") // Not a password - this is a command name constant
     private static final String COMMAND_CHANGE_PASSWORD = "changepassword";
     private static final String COMMAND_UNREGISTER = "unregister";
     private static final String COMMAND_VAUTH = "vauth";
@@ -163,7 +164,7 @@ public class CommandHandler {
      * @return DbResult<Boolean> with premium status, or error result
      */
     private DatabaseManager.DbResult<Boolean> checkPremiumStatus(Player player, String operation) {
-        var result = databaseManager.isPremium(player.getUsername()).join();
+        DatabaseManager.DbResult<Boolean> result = databaseManager.isPremium(player.getUsername()).join();
         if (result.isDatabaseError()) {
             if (logger.isErrorEnabled()) {
                 logger.error(SECURITY_MARKER, "[DATABASE ERROR] {} failed for {}: {}", operation, player.getUsername(), result.getErrorMessage());

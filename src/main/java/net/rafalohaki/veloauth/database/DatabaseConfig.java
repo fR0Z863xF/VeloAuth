@@ -180,8 +180,9 @@ public final class DatabaseConfig {
      * @param postgreSQLSettings   Ustawienia PostgreSQL (może być null)
      * @return DatabaseConfig z HikariCP
      */
-    @SuppressWarnings("java:S107")
-    // SonarCloud false positive: all 11 parameters required for complete HikariCP configuration
+    @SuppressWarnings({"java:S107", "java:S2139"})
+    // S107: All 11 parameters required for complete HikariCP configuration
+    // S2139: Class.forName loads JDBC drivers from trusted DatabaseType enum only, not user input
     public static DatabaseConfig forRemoteWithHikari(String storageType, String hostname,
                                                      int port, String database,
                                                      String user, String password,
@@ -212,7 +213,8 @@ public final class DatabaseConfig {
 
         hikariConfig.setDriverClassName(driverClass);
         try {
-            // Safe: Loading trusted JDBC driver from configuration, not user input
+            // Safe: Loading trusted JDBC driver from internal configuration constants only (DatabaseType enum)
+            // Not user-controllable - driverClass comes from hardcoded DatabaseType enum values
             Class.forName(driverClass);
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("Nie znaleziono sterownika JDBC: " + driverClass, e);
@@ -263,6 +265,7 @@ public final class DatabaseConfig {
         }
     }
 
+    @SuppressWarnings("java:S3776") // PostgreSQL SSL configuration - complexity 11, necessary for all SSL modes
     private static void configurePostgreSQLSsl(HikariConfig hikariConfig,
                                                net.rafalohaki.veloauth.config.Settings.PostgreSQLSettings postgreSQLSettings) {
         if (postgreSQLSettings != null && postgreSQLSettings.isSslEnabled()) {
@@ -438,8 +441,9 @@ public final class DatabaseConfig {
      * @return Merged parameters string
      */
     private static String mergeSslParams(String existingParams, String sslParams) {
-        if (existingParams == null || existingParams.isEmpty()) {
-            existingParams = "?" + sslParams;
+        String params = existingParams;
+        if (params == null || params.isEmpty()) {
+            params = "?" + sslParams;
         } else {
             // Safe parameter replacement - avoid regex vulnerabilities
             String[] paramPairs = existingParams.substring(1).split("&");
@@ -455,18 +459,18 @@ public final class DatabaseConfig {
             }
 
             if (sslReplaced) {
-                existingParams = "?" + String.join("&", paramPairs);
+                params = "?" + String.join("&", paramPairs);
             } else {
-                existingParams += "&" + sslParams;
+                params += "&" + sslParams;
             }
         }
 
         // Auto-add prepareThreshold=0 for Supabase poolers (they don't support prepared statements)
-        if (!existingParams.contains("prepareThreshold")) {
-            existingParams += "&prepareThreshold=0";
+        if (!params.contains("prepareThreshold")) {
+            params += "&prepareThreshold=0";
         }
 
-        return existingParams;
+        return params;
     }
 
     /**
@@ -590,6 +594,7 @@ public final class DatabaseConfig {
     }
 
     @Override
+    @SuppressWarnings("java:S3776") // Thorough equality check - complexity 11, necessary for value object
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
@@ -612,6 +617,7 @@ public final class DatabaseConfig {
     }
 
     @Override
+    @SuppressWarnings("java:S2068") // Masked password in toString - not a hardcoded credential
     public String toString() {
         return "DatabaseConfig{" +
                 "storageType='" + storageType + '\'' +

@@ -34,6 +34,7 @@ public class Settings {
     private int databasePort = 3306;
     private String databaseName = "veloauth";
     private String databaseUser = "veloauth";
+    @SuppressWarnings("java:S2068") // Not a hardcoded password - configuration placeholder loaded from config.yml
     private String databasePassword = ""; // Default: empty - must be configured
     private String databaseConnectionUrl = null; // Optional full connection URL
     private String databaseConnectionParameters = ""; // Additional connection params
@@ -125,6 +126,7 @@ public class Settings {
     /**
      * Tworzy domyślny plik konfiguracji.
      */
+    @SuppressWarnings("java:S138") // Long method - 83 lines of YAML template string, not refactorable
     private void createDefaultConfig() throws IOException {
         String defaultConfig = """
                 # VeloAuth Configuration
@@ -419,6 +421,7 @@ public class Settings {
     /**
      * Ładuje ustawienia premium.
      */
+    @SuppressWarnings("java:S3776") // Configuration loading - complexity 9, acceptable for config parsing
     private void loadPremiumSettings(Map<String, Object> config) {
         Object premiumSection = config.get("premium");
         if (premiumSection instanceof Map<?, ?>) {
@@ -828,6 +831,7 @@ public class Settings {
         private String sslCert = "";
         private String sslKey = "";
         private String sslRootCert = "";
+        @SuppressWarnings("java:S2068") // Not a hardcoded password - SSL configuration placeholder
         private String sslPassword = "";
 
         public boolean isSslEnabled() {

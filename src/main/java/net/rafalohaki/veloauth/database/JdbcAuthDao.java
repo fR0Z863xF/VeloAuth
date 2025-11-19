@@ -5,7 +5,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -30,6 +34,7 @@ public final class JdbcAuthDao {
     private final String updatePlayerSql;
     private final String deletePlayerSql;
 
+    @SuppressWarnings("java:S138") // Constructor initializes SQL templates - 54 lines, not refactorable
     public JdbcAuthDao(DatabaseConfig config) {
         this.config = Objects.requireNonNull(config, "config nie może być null");
         this.postgres = DatabaseType.POSTGRESQL.getName().equalsIgnoreCase(config.getStorageType());

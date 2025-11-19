@@ -6,7 +6,12 @@ import net.rafalohaki.veloauth.database.PremiumUuidDao;
 import net.rafalohaki.veloauth.model.PremiumUuid;
 import org.slf4j.Logger;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 

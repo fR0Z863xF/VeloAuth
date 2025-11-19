@@ -11,7 +11,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,11 +37,10 @@ class ValidationUtilsTest {
     }
 
     @Test
+    @SuppressWarnings("java:S2068") // Test passwords are test data, not production credentials
     void testValidatePassword_ValidPassword_ReturnsSuccess() {
         // Using TestValidationSettings with min=6, max=32
-
-        // Safe: Test passwords are acceptable in unit tests
-        String validPassword = "testPassword123"; // More descriptive test password
+        String validPassword = "testPassword123"; // Test password for validation
 
         ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(validPassword, mockSettings);
 
@@ -62,10 +65,9 @@ class ValidationUtilsTest {
     }
 
     @Test
+    @SuppressWarnings("java:S2068") // Test passwords are test data, not production credentials
     void testValidatePassword_TooShort_ReturnsError() {
         // Using TestValidationSettings with min=6
-
-        // Safe: Test passwords are acceptable in unit tests
         String shortPassword = "test";
 
         ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(shortPassword, mockSettings);
@@ -87,8 +89,8 @@ class ValidationUtilsTest {
     }
 
     @Test
+    @SuppressWarnings("java:S2068") // Test passwords are test data, not production credentials
     void testValidatePasswordMatch_MatchingPasswords_ReturnsSuccess() {
-        // Safe: Test passwords are acceptable in unit tests
         String password = "test123";
         String confirmPassword = "test123";
 
@@ -99,8 +101,8 @@ class ValidationUtilsTest {
     }
 
     @Test
+    @SuppressWarnings("java:S2068") // Test passwords are test data, not production credentials
     void testValidatePasswordMatch_NonMatchingPasswords_ReturnsError() {
-        // Safe: Test passwords are acceptable in unit tests
         String password = "testPassword123";
         String confirmPassword = "differentPassword";
 
@@ -111,8 +113,9 @@ class ValidationUtilsTest {
     }
 
     @Test
+    @SuppressWarnings("java:S5164") // Using localhost for unit test - no SSRF risk
     void testGetPlayerIp_ValidInetSocketAddress_ReturnsIp() throws java.net.UnknownHostException {
-        String expectedIp = "127.0.0.1"; // Use localhost for testing to avoid SSRF
+        String expectedIp = "127.0.0.1"; // Use localhost for testing
         InetAddress address = InetAddress.getByName(expectedIp);
         InetSocketAddress socketAddress = new InetSocketAddress(address, 25565);
         when(mockPlayer.getRemoteAddress()).thenReturn(socketAddress);

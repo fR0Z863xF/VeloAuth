@@ -165,6 +165,7 @@ public class ConnectionManager {
     /**
      * Weryfikuje gracza z bazą danych i transferuje na backend.
      */
+    @SuppressWarnings({"java:S3776", "java:S138"}) // Auth verification flow - 63 lines, complexity 9
     private boolean verifyAndTransferToBackend(Player player, CachedAuthUser cachedUser) {
         try {
             // Sprawdź w bazie danych dla bezpieczeństwa

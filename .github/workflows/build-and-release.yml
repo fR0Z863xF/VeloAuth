@@ -67,7 +67,13 @@ jobs:
   release:
     needs: [build]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+    if: github.event_name != 'pull_request'
+    env:
+      VERSION: ""
+      RELEASE_NAME: ""
+      RELEASE_BODY: ""
+      RELEASE_PRERELEASE: "false"
+      RELEASE_MAKE_LATEST: "false"
     
     steps:
     - name: Checkout code
@@ -109,27 +115,29 @@ jobs:
       run: |
         mv veloauth-*.jar "veloauth-$VERSION.jar"
         
-    - name: Remove existing release assets
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        script: |
-          const tag = process.env.VERSION;
-          try {
-            const release = await github.rest.repos.getReleaseByTag({ owner: context.repo.owner, repo: context.repo.repo, tag });
-            const assets = release.data.assets || [];
-            for (const asset of assets) {
-              await github.rest.repos.deleteReleaseAsset({ owner: context.repo.owner, repo: context.repo.repo, asset_id: asset.id });
-            }
-          } catch (e) {
-            core.info(`No existing release for tag ${tag} or unable to fetch release: ${e.message}`);
-          }
+    - name: Prepare release metadata
+      run: |
+        if [ "$VERSION" = "latest" ]; then
+          echo "RELEASE_NAME=Rolling Latest Build" >> $GITHUB_ENV
+          echo "RELEASE_BODY=Automated rolling release updated on $(date -u '+%Y-%m-%d %H:%M UTC')." >> $GITHUB_ENV
+          echo "RELEASE_PRERELEASE=true" >> $GITHUB_ENV
+          echo "RELEASE_MAKE_LATEST=false" >> $GITHUB_ENV
+        else
+          echo "RELEASE_NAME=${VERSION}" >> $GITHUB_ENV
+          echo "RELEASE_BODY=Automated release for tag ${VERSION}." >> $GITHUB_ENV
+          echo "RELEASE_PRERELEASE=false" >> $GITHUB_ENV
+          echo "RELEASE_MAKE_LATEST=true" >> $GITHUB_ENV
+        fi
 
-    - name: Create or Update Release
-      uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191  # v1.0.2
+    - name: Publish (update) release
+      uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b
       with:
-        tag_name: ${{ env.VERSION }}
-        files: veloauth-*.jar
+        tag: ${{ env.VERSION }}
+        name: ${{ env.RELEASE_NAME }}
+        body: ${{ env.RELEASE_BODY }}
+        allowUpdates: true
+        replacesArtifacts: true
+        makeLatest: ${{ env.RELEASE_MAKE_LATEST }}
         draft: false
-        prerelease: false
-        generate_release_notes: true
+        prerelease: ${{ env.RELEASE_PRERELEASE }}
+        artifacts: "veloauth-*.jar"

@@ -71,7 +71,6 @@ jobs:
     env:
       VERSION: ""
       RELEASE_NAME: ""
-      RELEASE_BODY: ""
       RELEASE_PRERELEASE: "false"
       RELEASE_MAKE_LATEST: "false"
       RELEASE_NOTES: ""
@@ -135,25 +134,21 @@ jobs:
         if [ "$VERSION" = "latest" ]; then
           echo "RELEASE_NAME=Rolling Latest Build" >> $GITHUB_ENV
           {
-            echo "RELEASE_BODY<<'EOF'"
             echo "Rolling release updated on $(date -u '+%Y-%m-%d %H:%M UTC')."
             echo
             echo "Recent changes:"
             echo "$recent_notes"
-            echo "EOF"
-          } >> $GITHUB_ENV
+          } > release_body.txt
           echo "RELEASE_PRERELEASE=false" >> $GITHUB_ENV
           echo "RELEASE_MAKE_LATEST=true" >> $GITHUB_ENV
         else
           echo "RELEASE_NAME=${VERSION}" >> $GITHUB_ENV
           {
-            echo "RELEASE_BODY<<'EOF'"
             echo "Release for tag ${VERSION}."
             echo
             echo "Recent changes:"
             echo "$recent_notes"
-            echo "EOF"
-          } >> $GITHUB_ENV
+          } > release_body.txt
           echo "RELEASE_PRERELEASE=false" >> $GITHUB_ENV
           echo "RELEASE_MAKE_LATEST=true" >> $GITHUB_ENV
         fi
@@ -163,7 +158,7 @@ jobs:
       with:
         tag: ${{ env.VERSION }}
         name: ${{ env.RELEASE_NAME }}
-        body: ${{ env.RELEASE_BODY }}
+        bodyFile: release_body.txt
         allowUpdates: true
         replacesArtifacts: true
         makeLatest: ${{ env.RELEASE_MAKE_LATEST }}

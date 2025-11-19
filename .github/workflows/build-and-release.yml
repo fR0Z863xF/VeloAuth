@@ -120,8 +120,8 @@ jobs:
         if [ "$VERSION" = "latest" ]; then
           echo "RELEASE_NAME=Rolling Latest Build" >> $GITHUB_ENV
           echo "RELEASE_BODY=Automated rolling release updated on $(date -u '+%Y-%m-%d %H:%M UTC')." >> $GITHUB_ENV
-          echo "RELEASE_PRERELEASE=true" >> $GITHUB_ENV
-          echo "RELEASE_MAKE_LATEST=false" >> $GITHUB_ENV
+          echo "RELEASE_PRERELEASE=false" >> $GITHUB_ENV
+          echo "RELEASE_MAKE_LATEST=true" >> $GITHUB_ENV
         else
           echo "RELEASE_NAME=${VERSION}" >> $GITHUB_ENV
           echo "RELEASE_BODY=Automated release for tag ${VERSION}." >> $GITHUB_ENV

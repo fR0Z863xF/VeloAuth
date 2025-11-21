@@ -46,7 +46,6 @@ Add PicoLimbo to `velocity.toml`:
 lobby = "127.0.0.1:25566"  # PicoLimbo
 survival = "127.0.0.1:25565"  # Backend server
 ```
-Set `try = ["lobby"]` in `velocity.toml`.
 
 ## Configuration
 

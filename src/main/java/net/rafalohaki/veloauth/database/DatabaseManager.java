@@ -981,9 +981,24 @@ public class DatabaseManager {
 
     private void addColumn(java.sql.Connection connection, String quote, String columnName, String columnDefinition, String logMessage) throws SQLException {
         String sql = ALTER_TABLE + quote + AUTH_TABLE + quote + ADD_COLUMN + quote + columnName + quote + " " + columnDefinition;
-        executeAlterTable(connection, sql);
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, logMessage);
+        try {
+            executeAlterTable(connection, sql);
+            if (logger.isInfoEnabled()) {
+                logger.info(DB_MARKER, logMessage);
+            }
+        } catch (SQLException e) {
+            // H2 error code 42121 = DUPLICATE_COLUMN_NAME_1
+            // Inne bazy mogą mieć różne kody, sprawdzamy też komunikat
+            if (e.getErrorCode() == 42121 || e.getMessage().toLowerCase().contains("duplicate column")) {
+                if (logger.isInfoEnabled()) {
+                    logger.info(DB_MARKER, "Kolumna {} już istnieje w tabeli {} - pomijam (expected behavior)", 
+                              columnName, AUTH_TABLE);
+                }
+                // Nie rzucaj wyjątku - kolumna już istnieje, kontynuuj
+            } else {
+                // Inny błąd SQL - przekaż dalej
+                throw e;
+            }
         }
     }
 
@@ -1006,12 +1021,30 @@ public class DatabaseManager {
 
     /**
      * Sprawdza czy kolumna istnieje w tabeli używając DatabaseMetaData.
+     * Obsługuje H2 z DATABASE_TO_LOWER=TRUE poprzez case-insensitive porównywanie.
      */
     private boolean columnExists(java.sql.Connection connection, String tableName, String columnName) throws SQLException {
         java.sql.DatabaseMetaData metaData = connection.getMetaData();
-        try (java.sql.ResultSet columns = metaData.getColumns(null, null, tableName, columnName)) {
-            return columns.next();
+        
+        // Sprawdź zarówno uppercase jak i lowercase nazwy
+        // H2 z DATABASE_TO_LOWER=TRUE zwraca lowercase, inne bazy mogą zwracać uppercase
+        try (java.sql.ResultSet columns = metaData.getColumns(null, null, tableName, null)) {
+            while (columns.next()) {
+                String existingColumn = columns.getString("COLUMN_NAME");
+                if (existingColumn != null && existingColumn.equalsIgnoreCase(columnName)) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug(DB_MARKER, "Kolumna {} istnieje w tabeli {} (znaleziona jako: {})", 
+                                   columnName, tableName, existingColumn);
+                    }
+                    return true;
+                }
+            }
         }
+        
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, "Kolumna {} nie istnieje w tabeli {}", columnName, tableName);
+        }
+        return false;
     }
 
     /**

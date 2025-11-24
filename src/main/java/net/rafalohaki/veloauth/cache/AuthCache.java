@@ -223,8 +223,8 @@ public class AuthCache {
                 5, 5, TimeUnit.MINUTES
         );
 
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("cache.auth.created"),
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("cache.auth.created"),
                     ttlMinutes, maxSize, maxLoginAttempts, bruteForceTimeoutMinutes);
         }
     }
@@ -595,8 +595,8 @@ public class AuthCache {
                 bruteForceAttempts.clear();
                 premiumCache.clear();
                 activeSessions.clear();
-                if (logger.isInfoEnabled()) {
-                    logger.info(messages.get("cache.all_cleared"));
+                if (logger.isDebugEnabled()) {
+                    logger.debug(messages.get("cache.all_cleared"));
                 }
 
             } finally {
@@ -839,8 +839,8 @@ public class AuthCache {
             if (cacheHits.get() + cacheMisses.get() > 0) {
                 double rate = (double) cacheHits.get() / (cacheHits.get() + cacheMisses.get()) * 100;
                 String rateStr = String.format(java.util.Locale.US, "%.1f", rate);
-                if (logger.isInfoEnabled()) {
-                    logger.info(messages.get("cache.stats_final"),
+                if (logger.isDebugEnabled()) {
+                    logger.debug(messages.get("cache.stats_final"),
                             cacheHits.get(), cacheMisses.get(), rateStr);
                 }
             }
@@ -858,8 +858,8 @@ public class AuthCache {
             }
 
             clearAll();
-            if (logger.isInfoEnabled()) {
-                logger.info(messages.get("cache.shutdown"));
+            if (logger.isDebugEnabled()) {
+                logger.debug(messages.get("cache.shutdown"));
             }
 
         } catch (InterruptedException e) {

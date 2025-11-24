@@ -164,8 +164,8 @@ public class DatabaseManager {
         this.lastHealthCheckTime = 0;
         this.lastHealthCheckPassed = false;
 
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, messages.get("database.manager.created"), config.getStorageType());
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, messages.get("database.manager.created"), config.getStorageType());
         }
     }
 
@@ -226,20 +226,20 @@ public class DatabaseManager {
     }
 
     private void initializeHikariConnection() throws SQLException {
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, messages.get("database.manager.hikari_init"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, messages.get("database.manager.hikari_init"));
         }
         connectionSource = new DataSourceConnectionSource(config.getDataSource(), config.getJdbcUrl());
 
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, messages.get("database.manager.hikari_ready"), config.getStorageType());
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, messages.get("database.manager.hikari_ready"), config.getStorageType());
         }
     }
 
     private void initializeStandardJdbcConnection() throws SQLException {
         String jdbcUrl = config.getJdbcUrl();
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, "Connecting to database (standard JDBC): {}", jdbcUrl);
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, "Connecting to database (standard JDBC): {}", jdbcUrl);
         }
 
         connectionSource = new JdbcConnectionSource(
@@ -248,8 +248,8 @@ public class DatabaseManager {
                 config.getPassword()
         );
 
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, messages.get("database.manager.standard_jdbc"), config.getStorageType());
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, messages.get("database.manager.standard_jdbc"), config.getStorageType());
         }
     }
 
@@ -261,8 +261,8 @@ public class DatabaseManager {
 
     private void markAsConnected() {
         connected = true;
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, messages.get("database.manager.connected"), config.getStorageType());
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, messages.get("database.manager.connected"), config.getStorageType());
         }
     }
 
@@ -323,8 +323,8 @@ public class DatabaseManager {
             }
         }, 30, 30, TimeUnit.SECONDS); // Start po 30 sekundach, co 30 sekund
 
-        if (logger.isInfoEnabled()) {
-            logger.info(DB_MARKER, messages.get("database.manager.health_checks_started"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, messages.get("database.manager.health_checks_started"));
         }
     }
 
@@ -898,8 +898,8 @@ public class DatabaseManager {
      * Tworzy tabele jeśli nie istnieją i migruje schemat dla kompatybilności z limboauth.
      */
     private void createTablesIfNotExists() throws SQLException {
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("database.manager.creating_tables"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("database.manager.creating_tables"));
         }
 
         // Tworzenie tabeli AUTH
@@ -914,8 +914,8 @@ public class DatabaseManager {
         // Tworzenie indeksów dla wydajności
         createIndexesIfNotExists();
 
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("database.manager.tables_created"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("database.manager.tables_created"));
         }
     }
 
@@ -990,8 +990,8 @@ public class DatabaseManager {
             // H2 error code 42121 = DUPLICATE_COLUMN_NAME_1
             // Inne bazy mogą mieć różne kody, sprawdzamy też komunikat
             if (e.getErrorCode() == 42121 || e.getMessage().toLowerCase().contains("duplicate column")) {
-                if (logger.isInfoEnabled()) {
-                    logger.info(DB_MARKER, "Kolumna {} już istnieje w tabeli {} - pomijam (expected behavior)", 
+                if (logger.isDebugEnabled()) {
+                    logger.debug(DB_MARKER, "Kolumna {} już istnieje w tabeli {} - pomijam (expected behavior)", 
                               columnName, AUTH_TABLE);
                 }
                 // Nie rzucaj wyjątku - kolumna już istnieje, kontynuuj
@@ -1003,8 +1003,8 @@ public class DatabaseManager {
     }
 
     private void logMigrationComplete(ColumnMigrationResult result) {
-        if (logger.isInfoEnabled() && (!result.hasPremiumUuid || !result.hasTotpToken || !result.hasIssuedTime)) {
-            logger.info(DB_MARKER, "Migracja schematu AUTH dla limboauth zakończona");
+        if (logger.isDebugEnabled() && (!result.hasPremiumUuid || !result.hasTotpToken || !result.hasIssuedTime)) {
+            logger.debug(DB_MARKER, "Migracja schematu AUTH dla limboauth zakończona");
         }
     }
 

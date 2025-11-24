@@ -100,8 +100,8 @@ public class AuthListener {
         this.postLoginHandler = java.util.Objects.requireNonNull(postLoginHandler, 
             "PostLoginHandler cannot be null - initialization failed");
 
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("connection.listener.registered"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("connection.listener.registered"));
         }
     }
 

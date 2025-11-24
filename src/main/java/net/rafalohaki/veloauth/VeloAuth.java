@@ -77,18 +77,19 @@ public class VeloAuth {
     private volatile boolean initialized = false;
 
     /**
-     * Konstruktor z dependency injection Velocity.
+     * Konstruktor VeloAuth.
      *
      * @param server        ProxyServer instance
      * @param logger        Logger instance
-     * @param dataDirectory Katalog danych pluginu
+     * @param dataDirectory Path do data folder
      */
     @Inject
     public VeloAuth(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
         this.server = server;
         this.logger = logger;
         this.dataDirectory = dataDirectory;
-
+        
+                
         if (logger.isDebugEnabled()) {
             logger.debug("VeloAuth konstruktor - Java {}, Velocity API {}",
                     System.getProperty("java.version"),
@@ -96,6 +97,7 @@ public class VeloAuth {
         }
     }
 
+    
     private boolean reloadLanguageFiles() {
         try {
             messages.reload();
@@ -152,11 +154,11 @@ public class VeloAuth {
                         // Clear any stale cache entries from previous server runs
                         if (databaseManager != null) {
                             databaseManager.clearCache();
-                            logger.info("Cleared stale database cache entries");
+                            logger.debug("Cleared stale database cache entries");
                         }
                         if (authCache != null) {
                             authCache.clearAll();
-                            logger.info("Cleared stale authentication cache entries");
+                            logger.debug("Cleared stale authentication cache entries");
                         }
 
                         // CRITICAL: Set initialized flag to TRUE only after ALL components are ready
@@ -199,8 +201,8 @@ public class VeloAuth {
             initializeListeners();
             debugServers();
 
-            if (logger.isInfoEnabled()) {
-                logger.info(messages.get("plugin.initialization.components_ready"));
+            if (logger.isDebugEnabled()) {
+                logger.debug(messages.get("plugin.initialization.components_ready"));
             }
 
         } catch (IllegalStateException e) {
@@ -295,7 +297,7 @@ public class VeloAuth {
             logger.debug("AuthCache reference set in DatabaseManager");
         }
         
-        logger.info("✅ Cache initialized in {} ms (TTL: {} min, Max size: {}, Premium cache: 10000)", 
+        logger.debug("✅ Cache initialized in {} ms (TTL: {} min, Max size: {}, Premium cache: 10000)", 
                 System.currentTimeMillis() - startTime, 
                 settings.getCacheTtlMinutes(), 
                 settings.getCacheMaxSize());
@@ -308,7 +310,7 @@ public class VeloAuth {
         commandHandler = new CommandHandler(this, databaseManager, authCache, settings, messages);
         commandHandler.registerCommands();
         
-        logger.info("✅ Commands registered in {} ms", System.currentTimeMillis() - startTime);
+        logger.debug("✅ Commands registered in {} ms", System.currentTimeMillis() - startTime);
     }
 
     private void initializeConnectionManager() {
@@ -317,7 +319,7 @@ public class VeloAuth {
         
         connectionManager = new ConnectionManager(this, databaseManager, authCache, settings, messages);
         
-        logger.info("✅ Connection manager initialized in {} ms", System.currentTimeMillis() - startTime);
+        logger.debug("✅ Connection manager initialized in {} ms", System.currentTimeMillis() - startTime);
     }
 
     private void initializePremiumResolver() {
@@ -326,7 +328,7 @@ public class VeloAuth {
         
         premiumResolverService = new PremiumResolverService(logger, settings, databaseManager.getPremiumUuidDao());
         
-        logger.info("✅ Premium resolver initialized in {} ms (Enabled: {})", 
+        logger.debug("✅ Premium resolver initialized in {} ms (Enabled: {})", 
                 System.currentTimeMillis() - startTime, 
                 settings.isPremiumCheckEnabled());
     }
@@ -352,7 +354,7 @@ public class VeloAuth {
             preLoginHandler, postLoginHandler, databaseManager, messages);
         
         server.getEventManager().register(this, authListener);
-        logger.info("✅ Event listeners registered in {} ms (PreLoginHandler + PostLoginHandler + AuthListener)", 
+        logger.debug("✅ Event listeners registered in {} ms (PreLoginHandler + PostLoginHandler + AuthListener)", 
                 System.currentTimeMillis() - startTime);
     }
 

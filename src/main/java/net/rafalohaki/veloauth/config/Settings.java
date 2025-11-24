@@ -91,13 +91,13 @@ public class Settings {
         try {
             // Utwórz domyślny config jeśli nie istnieje
             if (!Files.exists(configFile)) {
-                logger.info("Tworzenie domyślnego pliku konfiguracji: {}", configFile);
+                logger.debug("Tworzenie domyślnego pliku konfiguracji: {}", configFile);
                 createDefaultConfig();
                 return true;
             }
 
             // Wczytaj config z pliku
-            logger.info("Ładowanie konfiguracji z: {}", configFile);
+            logger.debug("Ładowanie konfiguracji z: {}", configFile);
 
             @SuppressWarnings("unchecked")
             Map<String, Object> config = yamlMapper.readValue(configFile.toFile(), Map.class);
@@ -117,7 +117,7 @@ public class Settings {
             // Walidacja konfiguracji
             validateSettings();
 
-            logger.info("Konfiguracja załadowana pomyślnie");
+            logger.debug("Konfiguracja załadowana pomyślnie");
             return true;
 
         } catch (JsonProcessingException e) {
@@ -653,7 +653,7 @@ public class Settings {
         
         // No strict validation - any language with a messages_XX.properties file will work
         // If the file doesn't exist, the system will fall back to English
-        logger.info("Language setting: {} (will fall back to 'en' if file not found)", language);
+        logger.debug("Language setting: {} (will fall back to 'en' if file not found)", language);
     }
 
     // Utility methods dla parsowania YAML

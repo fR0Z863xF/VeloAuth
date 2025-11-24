@@ -62,8 +62,8 @@ public class ConnectionManager {
         this.logger = plugin.getLogger();
         this.messages = messages;
 
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("connection.manager.initialized"),
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("connection.manager.initialized"),
                     settings.getPicoLimboServerName());
         }
     }
@@ -559,8 +559,8 @@ public class ConnectionManager {
                     NamedTextColor.YELLOW
             ));
 
-            if (logger.isInfoEnabled()) {
-                logger.info("Wymuszono ponowną autoryzację gracza: {}", player.getUsername());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Wymuszono ponowną autoryzację gracza: {}", player.getUsername());
             }
 
         } catch (Exception e) {
@@ -582,16 +582,16 @@ public class ConnectionManager {
      * Wyświetla wszystkie zarejestrowane serwery i sprawdza konfigurację PicoLimbo.
      */
     public void debugServers() {
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("connection.servers.available"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("connection.servers.available"));
         }
         plugin.getServer().getAllServers().forEach(server -> {
             String name = server.getServerInfo().getName();
             String address = server.getServerInfo().getAddress().toString();
-            logger.info("  - {} ({})", name, address);
+            logger.debug("  - {} ({})", name, address);
         });
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("connection.picolimbo.server"), settings.getPicoLimboServerName());
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("connection.picolimbo.server"), settings.getPicoLimboServerName());
         }
 
         // Sprawdź czy PicoLimbo serwer istnieje

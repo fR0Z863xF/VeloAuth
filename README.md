@@ -20,6 +20,10 @@ VeloAuth is an **authorization manager for Velocity proxy** that handles player 
 - ✅ **Graceful Shutdown** - proper cleanup with timeout handling
 - ✅ **Multi-database** - PostgreSQL, MySQL, H2, SQLite
 
+## Test Server
+
+2b2t.pl
+
 ## Requirements
 
 - **Java 21+** (Virtual Threads)

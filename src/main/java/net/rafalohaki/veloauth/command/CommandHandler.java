@@ -98,8 +98,8 @@ public class CommandHandler {
         commandManager.register(commandManager.metaBuilder(COMMAND_UNREGISTER).build(), new UnregisterCommand());
         commandManager.register(commandManager.metaBuilder(COMMAND_VAUTH).build(), new VAuthCommand());
 
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("connection.commands.registered"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("connection.commands.registered"));
         }
     }
 
@@ -115,8 +115,8 @@ public class CommandHandler {
         commandManager.unregister(COMMAND_UNREGISTER);
         commandManager.unregister(COMMAND_VAUTH);
 
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("admin.commands_unregistered"));
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("admin.commands_unregistered"));
         }
     }
 

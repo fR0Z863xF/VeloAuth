@@ -39,7 +39,7 @@ class MessagesTest {
         messages.setLanguage("pl");
 
         assertEquals("pl", messages.getCurrentLanguage());
-        assertEquals("Gracz {} nie istnieje w bazie danych", messages.get("player.not.found"));
+        assertEquals("Gracz {} nie istnieje w bazie danych", messages.get("player.not_found"));
     }
 
     @Test
@@ -55,9 +55,9 @@ class MessagesTest {
     void get_withArguments_formatsMessage() {
         messages.setLanguage("en");
 
-        String message = messages.get("security.brute_force.blocked", 5);
+        String message = messages.get("admin.stats.premium_accounts", 5);
 
-        assertEquals("Too many login attempts! Blocked for 5 minutes.", message);
+        assertEquals("Premium accounts: 5", message);
     }
 
     @Test

@@ -116,7 +116,7 @@ public class CommandHandler {
         commandManager.unregister(COMMAND_VAUTH);
 
         if (logger.isInfoEnabled()) {
-            logger.info("Komendy wyrejestrowane");
+            logger.info(messages.get("admin.commands_unregistered"));
         }
     }
 
@@ -140,7 +140,7 @@ public class CommandHandler {
 
         // Check brute force protection
         if (playerAddress != null && authCache.isBlocked(playerAddress)) {
-            player.sendMessage(ValidationUtils.createErrorComponent(messages.get("security.brute_force.blocked")));
+            player.sendMessage(sm.bruteForceBlocked());
             if (logger.isWarnEnabled()) {
                 logger.warn(SECURITY_MARKER, "[BRUTE FORCE BLOCK] IP {} attempted {}", playerAddress.getHostAddress(), commandName);
             }
@@ -231,7 +231,7 @@ public class CommandHandler {
 
             // Additional login-specific checks
             if (authCache.isPlayerAuthorized(player.getUniqueId(), PlayerAddressUtils.getPlayerIp(player))) {
-                player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.login.already_logged_in")));
+                player.sendMessage(sm.alreadyLogged());
                 return;
             }
 
@@ -270,8 +270,8 @@ public class CommandHandler {
                 resetSecurityCounters(authContext.playerAddress);
 
                 authContext.player.sendMessage(sm.loginSuccess());
-                if (logger.isInfoEnabled()) {
-                    logger.info(AUTH_MARKER, "Gracz {} zalogował się pomyślnie z IP {} - sesja rozpoczęta",
+                if (logger.isDebugEnabled()) {
+                    logger.debug(AUTH_MARKER, "Gracz {} zalogował się pomyślnie z IP {} - sesja rozpoczęta",
                             authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player));
                 }
 
@@ -289,7 +289,7 @@ public class CommandHandler {
             boolean blocked = SecurityUtils.registerFailedLogin(authContext.playerAddress, authCache);
 
             if (blocked) {
-                authContext.player.sendMessage(ValidationUtils.createErrorComponent(messages.get("security.brute_force.blocked")));
+                authContext.player.sendMessage(sm.bruteForceBlocked());
                 if (logger.isWarnEnabled()) {
                     logger.warn("Gracz {} zablokowany za brute force z IP {}",
                             authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player));
@@ -360,7 +360,7 @@ public class CommandHandler {
 
             // Player already exists - template found them but registration should fail
             if (authContext.registeredPlayer != null) {
-                authContext.player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.register.already_registered")));
+                authContext.player.sendMessage(sm.alreadyRegistered());
                 return;
             }
 
@@ -474,7 +474,7 @@ public class CommandHandler {
                 return null;
             }
             if (ctx.registeredPlayer == null) {
-                ctx.player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.login.not_registered")));
+                ctx.player.sendMessage(sm.notRegistered());
                 return null;
             }
             return ctx;
@@ -483,7 +483,7 @@ public class CommandHandler {
         private boolean checkOldPassword(AuthenticationContext ctx, String oldPassword) {
             BCrypt.Result result = BCrypt.verifyer().verify(oldPassword.toCharArray(), ctx.registeredPlayer.getHash());
             if (!result.verified) {
-                ctx.player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.changepassword.incorrect_old_password")));
+                ctx.player.sendMessage(sm.incorrectOldPassword());
                 return false;
             }
             return true;
@@ -515,13 +515,13 @@ public class CommandHandler {
                     .filter(p -> !p.equals(ctx.player))
                     .filter(p -> p.getUsername().equalsIgnoreCase(ctx.username))
                     .forEach(p -> {
-                        p.disconnect(ValidationUtils.createWarningComponent(messages.get("general.kick.message")));
+                        p.disconnect(sm.kickMessage());
                         if (logger.isWarnEnabled()) {
                             logger.warn("Rozłączono duplikat gracza {} - zmiana hasła z IP {}",
                                     ctx.username, PlayerAddressUtils.getPlayerIp(ctx.player));
                         }
                     });
-            ctx.player.sendMessage(ValidationUtils.createSuccessComponent(messages.get("auth.changepassword.success")));
+            ctx.player.sendMessage(sm.changePasswordSuccess());
             if (logger.isInfoEnabled()) {
                 logger.info(AUTH_MARKER, "Gracz {} zmienił hasło z IP {}",
                         ctx.username, PlayerAddressUtils.getPlayerIp(ctx.player));
@@ -567,7 +567,7 @@ public class CommandHandler {
 
                 RegisteredPlayer registeredPlayer = dbResult.getValue();
                 if (registeredPlayer == null) {
-                    source.sendMessage(ValidationUtils.createErrorComponent("Gracz " + nickname + " nie został znaleziony w bazie danych!"));
+                    source.sendMessage(ValidationUtils.createErrorComponent(messages.get("admin.player_not_found", nickname)));
                     return;
                 }
 
@@ -592,11 +592,11 @@ public class CommandHandler {
                     authCache.removePremiumPlayer(nickname);
 
                     plugin.getServer().getPlayer(nickname).ifPresent(player -> {
-                        player.disconnect(ValidationUtils.createErrorComponent(messages.get("general.kick.message")));
+                        player.disconnect(sm.kickMessage());
                         logger.info("Rozłączono gracza {} - usunięcie konta przez admina", nickname);
                     });
 
-                    CommandHelper.sendSuccess(source, "Konto gracza " + nickname + " zostało usunięte!");
+                    CommandHelper.sendSuccess(source, messages.get("admin.account_deleted", nickname));
                     String adminName = source instanceof Player player ? player.getUsername() : "CONSOLE";
                     logger.info(AUTH_MARKER, "Administrator {} usunął konto gracza {}", adminName, nickname);
 
@@ -620,7 +620,7 @@ public class CommandHandler {
                 return UUID.fromString(registeredPlayer.getUuid());
             } catch (IllegalArgumentException e) {
                 logger.warn("Nieprawidłowy UUID dla gracza {}: {}", nickname, registeredPlayer.getUuid());
-                source.sendMessage(ValidationUtils.createErrorComponent("Błąd: nieprawidłowy UUID gracza!"));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("admin.uuid_invalid")));
                 return null;
             }
         }
@@ -652,16 +652,16 @@ public class CommandHandler {
                 case "cache-reset" -> handleCacheResetCommand(source, args);
                 case "stats" -> handleStatsCommand(source);
                 case "conflicts" -> handleConflictsCommand(source);
-                default -> source.sendMessage(ValidationUtils.createErrorComponent(messages.get("admin.reload.failed")));
+                default -> source.sendMessage(sm.adminReloadFailed());
             }
         }
         
         private void handleReloadCommand(CommandSource source) {
             boolean success = plugin.reloadConfig();
             if (success) {
-                source.sendMessage(ValidationUtils.createSuccessComponent(messages.get("admin.reload.success")));
+                source.sendMessage(sm.adminReloadSuccess());
             } else {
-                source.sendMessage(ValidationUtils.createErrorComponent(messages.get("admin.reload.failed")));
+                source.sendMessage(sm.adminReloadFailed());
             }
         }
         
@@ -763,11 +763,11 @@ public class CommandHandler {
         }
 
         private void sendAdminHelp(CommandSource source) {
-            source.sendMessage(net.kyori.adventure.text.Component.text("=== VeloAuth Admin ===", net.kyori.adventure.text.format.NamedTextColor.YELLOW));
-            source.sendMessage(net.kyori.adventure.text.Component.text("/vauth reload - Reload configuration", net.kyori.adventure.text.format.NamedTextColor.YELLOW));
-            source.sendMessage(net.kyori.adventure.text.Component.text("/vauth cache-reset [player] - Clear cache", net.kyori.adventure.text.format.NamedTextColor.YELLOW));
-            source.sendMessage(net.kyori.adventure.text.Component.text("/vauth stats - Show statistics", net.kyori.adventure.text.format.NamedTextColor.YELLOW));
-            source.sendMessage(net.kyori.adventure.text.Component.text("/vauth conflicts - List nickname conflicts", net.kyori.adventure.text.format.NamedTextColor.YELLOW));
+            source.sendMessage(sm.adminHelpHeader());
+            source.sendMessage(sm.adminHelpReload());
+            source.sendMessage(sm.adminHelpCache());
+            source.sendMessage(sm.adminHelpStats());
+            source.sendMessage(sm.adminHelpConflicts());
         }
 
         @Override

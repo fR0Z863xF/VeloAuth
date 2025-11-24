@@ -9,6 +9,7 @@ import net.rafalohaki.veloauth.cache.AuthCache.PremiumCacheEntry;
 import net.rafalohaki.veloauth.connection.ConnectionManager;
 import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
+import net.rafalohaki.veloauth.i18n.SimpleMessages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import org.slf4j.Logger;
@@ -28,6 +29,7 @@ public class PostLoginHandler {
     private final DatabaseManager databaseManager;
     private final Messages messages;
     private final Logger logger;
+    private final SimpleMessages sm;
 
     /**
      * Creates a new PostLoginHandler.
@@ -51,6 +53,7 @@ public class PostLoginHandler {
         this.databaseManager = databaseManager;
         this.messages = messages;
         this.logger = logger;
+        this.sm = new SimpleMessages(messages);
     }
 
     /**
@@ -89,13 +92,15 @@ public class PostLoginHandler {
      */
     public void handleOfflinePlayer(Player player, String playerIp) {
         if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
-            logger.info("\u2705 Gracz {} jest już autoryzowany - pozostaje na backendzie",
-                    player.getUsername());
+            if (logger.isDebugEnabled()) {
+                logger.debug("\u2705 Gracz {} jest już autoryzowany - pozostaje na backendzie",
+                        player.getUsername());
+            }
             return;
         }
 
-        if (logger.isInfoEnabled()) {
-            logger.info(messages.get("player.unauthorized.redirect"), player.getUsername());
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("player.unauthorized.redirect"), player.getUsername());
         }
 
         transferToPicoLimboAsync(player);
@@ -157,17 +162,13 @@ public class PostLoginHandler {
                     logger.error("\u274C Błąd podczas przenoszenia gracza {} na PicoLimbo",
                             player.getUsername());
 
-                    player.disconnect(Component.text(
-                            "Nie udało się połączyć z serwerem autoryzacji. Spróbuj ponownie.",
-                            NamedTextColor.RED));
+                    player.disconnect(sm.connectionErrorAuthConnect());
                 }
             } catch (Exception e) {
                 logger.error("❌ Błąd podczas przenoszenia gracza {} na PicoLimbo: {}",
                         player.getUsername(), e.getMessage(), e);
 
-                player.disconnect(Component.text(
-                        "Wystąpił błąd podczas łączenia z serwerem autoryzacji. Spróbuj ponownie.",
-                        NamedTextColor.RED));
+                player.disconnect(sm.connectionErrorAuthConnect());
             }
         }).schedule();
     }

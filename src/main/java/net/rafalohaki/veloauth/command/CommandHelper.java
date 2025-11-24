@@ -13,8 +13,8 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class CommandHelper {
 
-    private static final String MSG_SERVER_SHUTTING_DOWN = "⚠ Serwer jest wyłączany, nie można wykonać komendy";
-    private static final String MSG_SERVER_OVERLOADED = "⚠ Serwer jest przeciążony, spróbuj ponownie za chwilę";
+    private static final String MSG_KEY_SERVER_SHUTTING_DOWN = "system.shutting_down";
+    private static final String MSG_KEY_SERVER_OVERLOADED = "system.overloaded";
 
     private CommandHelper() {
         // Utility class - prevent instantiation
@@ -113,7 +113,7 @@ public final class CommandHelper {
     private static void handleAsyncCommandException(Throwable throwable, CommandSource source, 
                                                      Messages messages, String errorKey) {
         if (throwable instanceof java.util.concurrent.RejectedExecutionException) {
-            source.sendMessage(ValidationUtils.createErrorComponent(MSG_SERVER_OVERLOADED));
+            source.sendMessage(ValidationUtils.createErrorComponent(messages.get(MSG_KEY_SERVER_OVERLOADED)));
         } else {
             source.sendMessage(ValidationUtils.createErrorComponent(messages.get(errorKey)));
         }
@@ -132,7 +132,7 @@ public final class CommandHelper {
         try {
             // Check if executor is shutting down
             if (VirtualThreadExecutorProvider.isShutdown()) {
-                source.sendMessage(ValidationUtils.createErrorComponent(MSG_SERVER_SHUTTING_DOWN));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get(MSG_KEY_SERVER_SHUTTING_DOWN)));
                 return;
             }
 
@@ -143,7 +143,7 @@ public final class CommandHelper {
                         return null;
                     });
         } catch (java.util.concurrent.RejectedExecutionException e) {
-            source.sendMessage(ValidationUtils.createErrorComponent(MSG_SERVER_SHUTTING_DOWN));
+            source.sendMessage(ValidationUtils.createErrorComponent(messages.get(MSG_KEY_SERVER_SHUTTING_DOWN)));
         }
     }
 
@@ -161,7 +161,7 @@ public final class CommandHelper {
         try {
             // Check if executor is shutting down
             if (VirtualThreadExecutorProvider.isShutdown()) {
-                source.sendMessage(ValidationUtils.createErrorComponent(MSG_SERVER_SHUTTING_DOWN));
+                source.sendMessage(ValidationUtils.createErrorComponent(messages.get(MSG_KEY_SERVER_SHUTTING_DOWN)));
                 return;
             }
 
@@ -177,7 +177,7 @@ public final class CommandHelper {
                         return null;
                     });
         } catch (java.util.concurrent.RejectedExecutionException e) {
-            source.sendMessage(ValidationUtils.createErrorComponent(MSG_SERVER_SHUTTING_DOWN));
+            source.sendMessage(ValidationUtils.createErrorComponent(messages.get(MSG_KEY_SERVER_SHUTTING_DOWN)));
         }
     }
 }

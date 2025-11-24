@@ -30,8 +30,20 @@ public final class SimpleMessages {
         return key("auth.login.already_logged_in", NamedTextColor.YELLOW);
     }
 
+    public Component alreadyRegistered() {
+        return key("auth.register.already_registered", NamedTextColor.RED);
+    }
+
     public Component notRegistered() {
         return key("auth.login.not_registered", NamedTextColor.RED);
+    }
+
+    public Component incorrectOldPassword() {
+        return key("auth.changepassword.incorrect_old_password", NamedTextColor.RED);
+    }
+
+    public Component changePasswordSuccess() {
+        return key("auth.changepassword.success", NamedTextColor.GREEN);
     }
 
     public Component errorDatabase() {
@@ -78,7 +90,169 @@ public final class SimpleMessages {
         return key("validation.username.invalid", NamedTextColor.RED);
     }
 
-    public Component sessionExpired() {
-        return key("security.session.expired", NamedTextColor.YELLOW);
+
+    // System messages
+    public Component systemStarting() {
+        return key("system.starting", NamedTextColor.RED);
+    }
+
+    public Component systemInitError() {
+        return key("system.init_error", NamedTextColor.RED);
+    }
+
+    public Component systemShuttingDown() {
+        return key("system.shutting_down", NamedTextColor.YELLOW);
+    }
+
+    public Component systemOverloaded() {
+        return key("system.overloaded", NamedTextColor.YELLOW);
+    }
+
+    // Connection messages
+    public Component connectionErrorGeneric() {
+        return key("connection.error.generic", NamedTextColor.RED);
+    }
+
+    public Component connectionErrorDatabase() {
+        return key("connection.error.database", NamedTextColor.RED);
+    }
+
+    public Component connectionErrorUuidMismatch() {
+        return key("connection.error.uuid_mismatch", NamedTextColor.RED);
+    }
+
+    public Component connectionErrorAuthServer() {
+        return key("connection.error.auth_server", NamedTextColor.RED);
+    }
+
+    public Component connectionErrorAuthConnect() {
+        return key("connection.error.auth_connect", NamedTextColor.RED);
+    }
+
+    public Component connectionErrorGameServer() {
+        return key("connection.error.game_server", NamedTextColor.RED);
+    }
+
+    public Component connectionErrorNoServers() {
+        return key("connection.error.no_servers", NamedTextColor.RED);
+    }
+
+    public Component connectionConnecting() {
+        return key("connection.connecting", NamedTextColor.YELLOW);
+    }
+
+    // Auth messages
+    public Component authHeader() {
+        return key("auth.header", NamedTextColor.GOLD);
+    }
+
+    public Component authPromptLogin() {
+        return key("auth.prompt.login", NamedTextColor.YELLOW);
+    }
+
+    public Component authPromptRegister() {
+        return key("auth.prompt.register", NamedTextColor.YELLOW);
+    }
+
+    public Component authPromptGeneric() {
+        return key("auth.prompt.generic", NamedTextColor.YELLOW);
+    }
+
+    public Component authAccountExists() {
+        return key("auth.account_exists", NamedTextColor.GREEN);
+    }
+
+    public Component authFirstTime() {
+        return key("auth.first_time", NamedTextColor.AQUA);
+    }
+
+    public Component authMustLogin() {
+        return key("auth.must_login", NamedTextColor.RED);
+    }
+
+    public Component authLoggedOut() {
+        return key("auth.logged_out", NamedTextColor.YELLOW);
+    }
+
+    // Welcome messages
+    public Component welcomeFull() {
+        return key("general.welcome.full", NamedTextColor.GREEN);
+    }
+
+    // Validation messages
+    public Component passwordEmpty() {
+        return key("validation.password.empty", NamedTextColor.RED);
+    }
+
+    public Component passwordTooShort(int min) {
+        return key("validation.password.too_short", NamedTextColor.RED, min);
+    }
+
+    public Component passwordTooLong(int max) {
+        return key("validation.password.too_long", NamedTextColor.RED, max);
+    }
+
+    public Component passwordUtf8TooLong(int bytes) {
+        return key("validation.password.utf8_too_long", NamedTextColor.RED, bytes);
+    }
+
+    public Component passwordMismatchValidation() {
+        return key("validation.password.mismatch", NamedTextColor.RED);
+    }
+
+    // Admin messages
+    public Component adminPlayerNotFound(String player) {
+        return key("admin.player_not_found", NamedTextColor.RED, player);
+    }
+
+    public Component adminUuidInvalid() {
+        return key("admin.uuid_invalid", NamedTextColor.RED);
+    }
+
+    public Component adminAccountDeleted(String player) {
+        return key("admin.account_deleted", NamedTextColor.GREEN, player);
+    }
+
+    public Component adminCommandsUnregistered() {
+        return key("admin.commands_unregistered", NamedTextColor.YELLOW);
+    }
+
+    public Component adminHelpHeader() {
+        return key("admin.help.header", NamedTextColor.YELLOW);
+    }
+
+    public Component adminHelpReload() {
+        return key("admin.help.reload", NamedTextColor.YELLOW);
+    }
+
+    public Component adminHelpCache() {
+        return key("admin.help.cache", NamedTextColor.YELLOW);
+    }
+
+    public Component adminHelpStats() {
+        return key("admin.help.stats", NamedTextColor.YELLOW);
+    }
+
+    public Component adminHelpConflicts() {
+        return key("admin.help.conflicts", NamedTextColor.YELLOW);
+    }
+
+    // Brute force messages
+    public Component bruteForceBlocked() {
+        return key("security.brute_force.blocked", NamedTextColor.RED);
+    }
+
+    // Admin reload messages
+    public Component adminReloadSuccess() {
+        return key("admin.reload.success", NamedTextColor.GREEN);
+    }
+
+    public Component adminReloadFailed() {
+        return key("admin.reload.failed", NamedTextColor.RED);
+    }
+
+    // Kick messages
+    public Component kickMessage() {
+        return key("general.kick.message", NamedTextColor.YELLOW);
     }
 }

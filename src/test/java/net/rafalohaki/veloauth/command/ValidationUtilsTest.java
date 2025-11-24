@@ -53,7 +53,7 @@ class ValidationUtilsTest {
         ValidationUtils.ValidationResult result = ValidationUtils.validatePassword("", mockSettings);
 
         assertFalse(result.valid());
-        assertEquals("Hasło nie może być puste!", result.getErrorMessage());
+        assertEquals("validation.password.empty", result.getErrorMessage());
     }
 
     @Test
@@ -61,7 +61,7 @@ class ValidationUtilsTest {
         ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(null, mockSettings);
 
         assertFalse(result.valid());
-        assertEquals("Hasło nie może być puste!", result.getErrorMessage());
+        assertEquals("validation.password.empty", result.getErrorMessage());
     }
 
     @Test
@@ -73,7 +73,7 @@ class ValidationUtilsTest {
         ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(shortPassword, mockSettings);
 
         assertFalse(result.valid());
-        assertEquals("Hasło jest za krótkie! Minimum 6 znaków.", result.getErrorMessage());
+        assertEquals("validation.password.too_short:6", result.getErrorMessage());
     }
 
     @Test
@@ -85,7 +85,7 @@ class ValidationUtilsTest {
         ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(longPassword, mockSettings);
 
         assertFalse(result.valid());
-        assertEquals("Hasło jest za długie! Maksimum 32 znaków.", result.getErrorMessage());
+        assertEquals("validation.password.too_long:32", result.getErrorMessage());
     }
 
     @Test
@@ -109,7 +109,7 @@ class ValidationUtilsTest {
         ValidationUtils.ValidationResult result = ValidationUtils.validatePasswordMatch(password, confirmPassword);
 
         assertFalse(result.valid());
-        assertEquals("Hasła nie są identyczne!", result.getErrorMessage());
+        assertEquals("validation.password.mismatch", result.getErrorMessage());
     }
 
     @Test

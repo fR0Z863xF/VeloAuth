@@ -371,8 +371,8 @@ public class ConnectionManager {
                     .join();  // Czekaj na zakończenie transferu
 
             if (result.isSuccessful()) {
-                if (logger.isInfoEnabled()) {
-                    logger.info(messages.get("player.transfer.success"), player.getUsername());
+                if (logger.isDebugEnabled()) {
+                    logger.debug(messages.get("player.transfer.success"), player.getUsername());
                 }
                 return true;
             } else {
@@ -461,8 +461,8 @@ public class ConnectionManager {
                     .isSuccessful();
 
             if (transferSuccess) {
-                if (logger.isInfoEnabled()) {
-                    logger.info(messages.get("player.transfer.backend.success"),
+                if (logger.isDebugEnabled()) {
+                    logger.debug(messages.get("player.transfer.backend.success"),
                             player.getUsername(), serverName);
                 }
                 return true;

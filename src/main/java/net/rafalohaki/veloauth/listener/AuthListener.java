@@ -141,7 +141,9 @@ public class AuthListener {
     @Subscribe(priority = Short.MAX_VALUE)
     public void onPreLogin(PreLoginEvent event) {
         String username = event.getUsername();
-        logger.info("\uD83D\uDD0D PreLogin: {}", username);
+        if (logger.isDebugEnabled()) {
+            logger.debug("\uD83D\uDD0D PreLogin: {}", username);
+        }
 
         // CRITICAL: Block connections until plugin is fully initialized
         if (!plugin.isInitialized()) {
@@ -395,8 +397,8 @@ public class AuthListener {
                 // ❌ NIE AUTORYZOWANY LUB BRAK SESJI LUB UUID MISMATCH
                 String reason = resolveBlockReason(isAuthorized, hasActiveSession);
 
-                if (logger.isWarnEnabled()) {
-                    logger.warn(SECURITY_MARKER, messages.get("player.blocked.unauthorized"),
+                if (logger.isDebugEnabled()) {
+                    logger.debug(messages.get("player.blocked.unauthorized"),
                             player.getUsername(), targetServerName, reason, playerIp);
                 }
 

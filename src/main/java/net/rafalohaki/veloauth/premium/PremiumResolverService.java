@@ -12,7 +12,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
@@ -27,7 +30,7 @@ public class PremiumResolverService {
     private final Logger logger;
     private final PremiumUuidDao dao; // Renamed to avoid conflict with class name
     private final List<PremiumResolver> resolvers;
-    private final ConcurrentHashMap<String, CachedEntry> cache = new ConcurrentHashMap<>();
+    private final Map<String, CachedEntry> cache = new java.util.concurrent.ConcurrentHashMap<>();
     private final long premiumTtlMillis;
     private final long missTtlMillis;
     private final int maxCacheSize;
@@ -39,10 +42,12 @@ public class PremiumResolverService {
         PremiumResolverSettings rs = Objects.requireNonNull(settings, "settings").getPremiumResolverSettings();
         this.dao = Objects.requireNonNull(premiumUuidDao, "premiumUuidDao");
 
-        logger.info("[PremiumResolver] Config - Mojang: {}, Ashcon: {}, Wpme: {}",
-                rs.isMojangEnabled(),
-                rs.isAshconEnabled(),
-                rs.isWpmeEnabled());
+        if (logger.isInfoEnabled()) {
+            logger.info("[PremiumResolver] Config - Mojang: {}, Ashcon: {}, Wpme: {}",
+                    rs.isMojangEnabled(),
+                    rs.isAshconEnabled(),
+                    rs.isWpmeEnabled());
+        }
 
         int timeoutMs = Math.max(100, rs.getRequestTimeoutMs());
         List<PremiumResolver> resolverList = new ArrayList<>();
@@ -53,7 +58,7 @@ public class PremiumResolverService {
 
         this.premiumTtlMillis = Math.max(0L, rs.getHitTtlMinutes()) * 60_000L;
         this.missTtlMillis = Math.max(0L, rs.getMissTtlMinutes()) * 60_000L;
-        this.maxCacheSize = 10000;
+        this.maxCacheSize = 10_000;
     }
 
     /**
@@ -71,48 +76,104 @@ public class PremiumResolverService {
             return offlineCandidate;
         }
 
-        logger.warn("[PremiumResolver] No premium resolvers enabled - defaulting offline");
+        if (logger.isWarnEnabled()) {
+            logger.warn("[PremiumResolver] No premium resolvers enabled - defaulting offline");
+        }
         PremiumResolution disabled = PremiumResolution.offline(trimmed, RESOLVER_SERVICE, "no resolvers enabled");
         cacheResult(cacheKey, disabled);
         return disabled;
     }
 
     /**
-     * Próbuje wszystkie API resolvers.
-     * FIXED: Single API call per resolver (was double-calling before).
+     * Próbuje wszystkie API resolvers RÓWNOLEGLE.
+     * Zwraca pierwszy wynik PREMIUM lub pierwszy OFFLINE jeśli żaden nie jest premium.
+     * Używa Virtual Threads dla maksymalnej wydajności.
      *
      * @param trimmed Nazwa gracza
      * @return PremiumResolution lub null jeśli żaden resolver nie włączony
      */
-    @SuppressWarnings("java:S3776") // Cognitive Complexity 16 - resolver chain logic, acceptable for security-critical path
+    @SuppressWarnings("java:S3776") // Cognitive Complexity - parallel resolver logic
     private PremiumResolution tryApiResolvers(String trimmed) {
-        PremiumResolution offlineCandidate = null;
-        boolean anyEnabled = false;
+        List<PremiumResolver> enabledResolvers = resolvers.stream()
+                .filter(PremiumResolver::enabled)
+                .toList();
 
-        for (PremiumResolver resolver : resolvers) {
-            if (!resolver.enabled()) {
-                continue;
-            }
-            anyEnabled = true;
+        if (enabledResolvers.isEmpty()) {
+            return null;
+        }
 
-            // CRITICAL FIX: Single API call per resolver
-            PremiumResolution rawResolution = resolver.resolve(trimmed);
-            PremiumResolution resolution = normalizeResolution(resolver, rawResolution, trimmed);
+        // Atomic reference for first premium result (wins immediately)
+        AtomicReference<PremiumResolution> premiumResult = new AtomicReference<>();
+        AtomicReference<PremiumResolution> offlineCandidate = new AtomicReference<>();
 
-            // Check if premium found
-            if (resolution.isPremium()) {
-                savePremiumToCache(resolution, trimmed);
-                // Premium found - return immediately
-                return resolution;
-            }
+        // Launch all resolvers in parallel
+        List<CompletableFuture<PremiumResolution>> futures = enabledResolvers.stream()
+                .map(resolver -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        PremiumResolution rawResolution = resolver.resolve(trimmed);
+                        PremiumResolution resolution = normalizeResolution(resolver, rawResolution, trimmed);
 
-            // Collect offline candidate for fallback
-            if (resolution.isOffline() && offlineCandidate == null) {
-                offlineCandidate = resolution;
+                        // If premium found, set it immediately
+                        if (resolution.isPremium()) {
+                            premiumResult.compareAndSet(null, resolution);
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("[PARALLEL] {} returned PREMIUM for {}", resolver.id(), trimmed);
+                            }
+                        } else if (resolution.isOffline()) {
+                            offlineCandidate.compareAndSet(null, resolution);
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("[PARALLEL] {} returned OFFLINE for {}", resolver.id(), trimmed);
+                            }
+                        } else if (logger.isDebugEnabled()) {
+                            logger.debug("[PARALLEL] {} returned UNKNOWN for {}: {}", 
+                                    resolver.id(), trimmed, resolution.message());
+                        }
+
+                        return resolution;
+                    } catch (Exception e) { // NOSONAR - catch-all for API resilience
+                        if (logger.isWarnEnabled()) {
+                            logger.warn("[PARALLEL] {} failed for {}: {}", resolver.id(), trimmed, e.getMessage());
+                        }
+                        return PremiumResolution.unknown(resolver.id(), e.getMessage());
+                    }
+                }, net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider.getVirtualExecutor()))
+                .toList();
+
+        // Wait for all with timeout (max 5 seconds total)
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                    .orTimeout(5, TimeUnit.SECONDS)
+                    .exceptionally(ex -> null) // Ignore timeout, we'll use whatever we have
+                    .join();
+        } catch (Exception e) { // NOSONAR - catch-all for timeout handling
+            if (logger.isDebugEnabled()) {
+                logger.debug("[PARALLEL] Timeout or error waiting for resolvers: {}", e.getMessage());
             }
         }
 
-        return anyEnabled ? offlineCandidate : null;
+        // Check results: Premium wins, otherwise use offline candidate
+        PremiumResolution premium = premiumResult.get();
+        if (premium != null) {
+            savePremiumToCache(premium, trimmed);
+            if (logger.isInfoEnabled()) {
+                logger.info("[PARALLEL] Premium confirmed for {} from {}", trimmed, premium.source());
+            }
+            return premium;
+        }
+
+        PremiumResolution offline = offlineCandidate.get();
+        if (offline != null) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("[PARALLEL] All resolvers returned offline for {}", trimmed);
+            }
+            return offline;
+        }
+
+        // All resolvers returned unknown
+        if (logger.isWarnEnabled()) {
+            logger.warn("[PARALLEL] All resolvers returned unknown for {} - possible API issues", trimmed);
+        }
+        return PremiumResolution.unknown(RESOLVER_SERVICE, "all resolvers failed");
     }
 
     /**
@@ -124,7 +185,7 @@ public class PremiumResolverService {
     private void savePremiumToCache(PremiumResolution resolution, String trimmed) {
         if (resolution.uuid() != null) {
             boolean saved = dao.saveOrUpdate(resolution.uuid(), trimmed);
-            if (saved) {
+            if (saved && logger.isDebugEnabled()) {
                 logger.debug("[PremiumResolver] zapisano do DB cache: {} -> {}", trimmed, resolution.uuid());
             }
         }
@@ -146,7 +207,9 @@ public class PremiumResolverService {
         // 1. Sprawdź memory cache (najszybsze)
         PremiumResolution cached = getFromCache(cacheKey);
         if (cached != null) {
-            logger.debug("[PremiumResolver] memory cache hit {} -> {}", trimmed, cached.status());
+            if (logger.isDebugEnabled()) {
+                logger.debug("[PremiumResolver] memory cache hit {} -> {}", trimmed, cached.status());
+            }
             return cached;
         }
 
@@ -162,8 +225,10 @@ public class PremiumResolverService {
 
             // Zapisz do memory cache
             cacheResult(cacheKey, result);
-            logger.info("[PremiumResolver] database cache hit {} -> {} (UUID: {})",
-                    trimmed, result.status(), premiumUuid.getUuid());
+            if (logger.isInfoEnabled()) {
+                logger.info("[PremiumResolver] database cache hit {} -> {} (UUID: {})",
+                        trimmed, result.status(), premiumUuid.getUuid());
+            }
             return result;
         }
 
@@ -186,7 +251,9 @@ public class PremiumResolverService {
                     return PremiumResolution.unknown(source, "missing uuid");
                 }
                 if (!canonical.equalsIgnoreCase(requestName)) {
-                    logger.debug("[PremiumResolver] username mismatch {} vs {} from {}", canonical, requestName, source);
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("[PremiumResolver] username mismatch {} vs {} from {}", canonical, requestName, source);
+                    }
                     return PremiumResolution.offline(requestName, source, "username mismatch with canonical name");
                 }
                 return PremiumResolution.premium(resolution.uuid(), canonical, source);
@@ -231,8 +298,10 @@ public class PremiumResolverService {
                         .limit(entriesToRemove)
                         .forEach(entry -> cache.remove(entry.getKey()));
 
-                logger.debug("[PremiumResolver] Cache eviction: removed {} entries, new size: {}",
-                        entriesToRemove, cache.size());
+                if (logger.isDebugEnabled()) {
+                    logger.debug("[PremiumResolver] Cache eviction: removed {} entries, new size: {}",
+                            entriesToRemove, cache.size());
+                }
             }
 
             cache.put(key, new CachedEntry(resolution, System.currentTimeMillis()));
@@ -244,10 +313,7 @@ public class PremiumResolverService {
     private record CachedEntry(PremiumResolution resolution, long timestamp) {
         boolean isExpired(long premiumTtlMillis, long missTtlMillis) {
             long ttl = resolution.isPremium() ? premiumTtlMillis : missTtlMillis;
-            if (ttl <= 0L) {
-                return true;
-            }
-            return System.currentTimeMillis() - timestamp > ttl;
+            return ttl <= 0L || System.currentTimeMillis() - timestamp > ttl;
         }
     }
 }

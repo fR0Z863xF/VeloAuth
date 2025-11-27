@@ -119,7 +119,7 @@ public class VeloAuth {
      */
     @Subscribe
     public void onProxyInitialize(ProxyInitializeEvent event) {
-        logger.info("=== VeloAuth v1.0.0 - Initialization ===");
+        logger.info("=== VeloAuth v{} - Initialization ===", getVersion());
 
         // Conditional logging to avoid unnecessary string concatenation
         if (logger.isDebugEnabled()) {

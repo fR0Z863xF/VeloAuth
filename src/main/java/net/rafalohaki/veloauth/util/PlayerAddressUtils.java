@@ -3,6 +3,9 @@ package net.rafalohaki.veloauth.util;
 import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.proxy.Player;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 
@@ -13,6 +16,8 @@ import java.net.InetSocketAddress;
  * Thread-safe: stateless utility methods.
  */
 public final class PlayerAddressUtils {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(PlayerAddressUtils.class);
 
     private PlayerAddressUtils() {
         // Utility class - prevent instantiation
@@ -31,10 +36,11 @@ public final class PlayerAddressUtils {
             return StringConstants.UNKNOWN;
         }
         
-        var address = player.getRemoteAddress();
+        InetSocketAddress address = player.getRemoteAddress();
         if (address == null) {
-            org.slf4j.LoggerFactory.getLogger(PlayerAddressUtils.class)
-                .warn("Player {} has null remote address", player.getUsername());
+            if (LOGGER.isWarnEnabled()) {
+                LOGGER.warn("Player {} has null remote address", player.getUsername());
+            }
             return StringConstants.UNKNOWN;
         }
         
@@ -58,10 +64,11 @@ public final class PlayerAddressUtils {
             return null;
         }
         
-        var address = player.getRemoteAddress();
+        InetSocketAddress address = player.getRemoteAddress();
         if (address == null) {
-            org.slf4j.LoggerFactory.getLogger(PlayerAddressUtils.class)
-                .warn("Player {} has null remote address", player.getUsername());
+            if (LOGGER.isWarnEnabled()) {
+                LOGGER.warn("Player {} has null remote address", player.getUsername());
+            }
             return null;
         }
         
@@ -86,27 +93,30 @@ public final class PlayerAddressUtils {
         }
         
         try {
-            var connection = event.getConnection();
+            com.velocitypowered.api.proxy.InboundConnection connection = event.getConnection();
             if (connection == null) {
-                org.slf4j.LoggerFactory.getLogger(PlayerAddressUtils.class)
-                    .debug("PreLoginEvent has null connection");
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("PreLoginEvent has null connection");
+                }
                 return null;
             }
             
-            var address = connection.getRemoteAddress();
+            java.net.SocketAddress address = connection.getRemoteAddress();
             if (address == null) {
-                org.slf4j.LoggerFactory.getLogger(PlayerAddressUtils.class)
-                    .warn("PreLoginEvent connection has null remote address for user: {}", 
-                        event.getUsername());
+                if (LOGGER.isWarnEnabled()) {
+                    LOGGER.warn("PreLoginEvent connection has null remote address for user: {}", 
+                            event.getUsername());
+                }
                 return null;
             }
             
             if (address instanceof InetSocketAddress inetAddress) {
                 return inetAddress.getAddress();
             }
-        } catch (Exception e) {
-            org.slf4j.LoggerFactory.getLogger(PlayerAddressUtils.class)
-                .error("Error extracting address from PreLoginEvent", e);
+        } catch (Exception e) { // NOSONAR - defensive catch for connection edge cases
+            if (LOGGER.isErrorEnabled()) {
+                LOGGER.error("Error extracting address from PreLoginEvent", e);
+            }
         }
         return null;
     }
@@ -123,7 +133,7 @@ public final class PlayerAddressUtils {
             return false;
         }
         
-        var address = player.getRemoteAddress();
-        return address instanceof InetSocketAddress;
+        InetSocketAddress address = player.getRemoteAddress();
+        return address != null;
     }
 }

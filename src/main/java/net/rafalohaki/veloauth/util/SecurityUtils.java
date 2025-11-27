@@ -43,10 +43,7 @@ public final class SecurityUtils {
      * @return true if blocked, false otherwise
      */
     public static boolean isBruteForceBlocked(InetAddress address, AuthCache authCache) {
-        if (address == null) {
-            return false;
-        }
-        return authCache.isBlocked(address);
+        return address != null && authCache.isBlocked(address);
     }
 
     /**
@@ -57,9 +54,6 @@ public final class SecurityUtils {
      * @return true if IP is now blocked, false otherwise
      */
     public static boolean registerFailedLogin(InetAddress address, AuthCache authCache) {
-        if (address == null) {
-            return false;
-        }
-        return authCache.registerFailedLogin(address);
+        return address != null && authCache.registerFailedLogin(address);
     }
 }

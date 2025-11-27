@@ -115,24 +115,30 @@ public final class VirtualThreadExecutorProvider {
             LOGGER.info("Initiating graceful shutdown of Virtual Thread executor...");
             VIRTUAL_EXECUTOR.shutdown();
 
-            if (!VIRTUAL_EXECUTOR.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
-                LOGGER.warn("Executor did not terminate within 10 seconds, forcing shutdown...");
+            if (VIRTUAL_EXECUTOR.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                LOGGER.info("Virtual Thread executor shutdown completed successfully");
+            } else {
+                if (LOGGER.isWarnEnabled()) {
+                    LOGGER.warn("Executor did not terminate within 10 seconds, forcing shutdown...");
+                }
                 java.util.List<Runnable> droppedTasks = VIRTUAL_EXECUTOR.shutdownNow();
-                LOGGER.warn("Forced shutdown - {} tasks were dropped", droppedTasks.size());
+                if (LOGGER.isWarnEnabled()) {
+                    LOGGER.warn("Forced shutdown - {} tasks were dropped", droppedTasks.size());
+                }
 
                 // Final termination check after forced shutdown
-                if (!VIRTUAL_EXECUTOR.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                if (!VIRTUAL_EXECUTOR.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) && LOGGER.isErrorEnabled()) {
                     LOGGER.error("Executor did not terminate after forced shutdown");
                 }
-            } else {
-                LOGGER.info("Virtual Thread executor shutdown completed successfully");
             }
         } catch (InterruptedException e) {
             LOGGER.error("Shutdown interrupted", e);
             VIRTUAL_EXECUTOR.shutdownNow();
             Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            LOGGER.error("Error during Virtual Thread executor shutdown", e);
+        } catch (SecurityException e) {
+            if (LOGGER.isErrorEnabled()) {
+                LOGGER.error("Error during Virtual Thread executor shutdown", e);
+            }
         }
     }
 }

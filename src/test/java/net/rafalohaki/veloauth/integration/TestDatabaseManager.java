@@ -5,6 +5,7 @@ import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,7 +35,7 @@ class TestDatabaseManager extends DatabaseManager {
 
     void setFindResult(String nickname, CompletableFuture<DatabaseManager.DbResult<RegisteredPlayer>> result) {
         if (nickname != null && result != null) {
-            findResults.put(nickname.toLowerCase(), result);
+            findResults.put(nickname.toLowerCase(Locale.ROOT), result);
         }
     }
 
@@ -49,7 +50,7 @@ class TestDatabaseManager extends DatabaseManager {
         if (nickname == null || nickname.isEmpty()) {
             return CompletableFuture.completedFuture(DatabaseManager.DbResult.success(null));
         }
-        return findResults.getOrDefault(nickname.toLowerCase(), CompletableFuture.completedFuture(DatabaseManager.DbResult.success(null)));
+        return findResults.getOrDefault(nickname.toLowerCase(Locale.ROOT), CompletableFuture.completedFuture(DatabaseManager.DbResult.success(null)));
     }
 
     @Override

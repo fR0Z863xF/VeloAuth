@@ -62,8 +62,10 @@ public final class DatabaseErrorHandler {
     public static boolean handleError(DbResult<?> result, CommandSource source, String identifier,
                                      String operation, Logger logger, Messages messages) {
         if (result.isDatabaseError()) {
-            logger.error(SECURITY_MARKER, "[DATABASE ERROR] {} {}: {}",
-                    operation, identifier, result.getErrorMessage());
+            if (logger.isErrorEnabled()) {
+                logger.error(SECURITY_MARKER, "[DATABASE ERROR] {} {}: {}",
+                        operation, identifier, result.getErrorMessage());
+            }
             source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
             return true;
         }

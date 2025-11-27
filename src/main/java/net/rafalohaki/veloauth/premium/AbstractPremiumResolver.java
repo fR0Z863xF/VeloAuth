@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -22,8 +22,8 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
     private final boolean enabled;
     private final int timeoutMs;
     // Rate limiting protection
-    private final ConcurrentHashMap<String, AtomicInteger> requestCounts = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, AtomicLong> lastResetTime = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> requestCounts = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, AtomicLong> lastResetTime = new java.util.concurrent.ConcurrentHashMap<>();
 
     protected AbstractPremiumResolver(Logger logger, boolean enabled, int timeoutMs) {
         this.logger = Objects.requireNonNull(logger, "logger");
@@ -55,7 +55,7 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
                 
                 // Only retry on unknown status (network errors, timeouts)
                 if (!result.isUnknown() || attempt == maxRetries) {
-                    if (attempt > 0) {
+                    if (attempt > 0 && logger.isDebugEnabled()) {
                         logger.debug("[{}] Succeeded on retry {} for {}", getClass().getSimpleName(), attempt, username);
                     }
                     return result;
@@ -63,7 +63,9 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
                 
                 // Exponential backoff before retry
                 int delayMs = baseDelayMs * (1 << attempt); // 100ms, 200ms, 400ms
-                logger.debug("[{}] Retry {} after {}ms for {}", getClass().getSimpleName(), attempt + 1, delayMs, username);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("[{}] Retry {} after {}ms for {}", getClass().getSimpleName(), attempt + 1, delayMs, username);
+                }
                 
                 try {
                     Thread.sleep(delayMs);
@@ -74,15 +76,21 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
                 
             } catch (IOException ex) {
                 if (attempt == maxRetries) {
-                    logger.debug("[{}] IO error after {} retries for {}: {}", 
-                            getClass().getSimpleName(), maxRetries, username, ex.getMessage());
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("[{}] IO error after {} retries for {}: {}", 
+                                getClass().getSimpleName(), maxRetries, username, ex.getMessage());
+                    }
                     return PremiumResolution.unknown(id(), "io error after retries");
                 }
                 // Will retry on next iteration
-                logger.debug("[{}] IO error on attempt {} for {}, retrying...", 
-                        getClass().getSimpleName(), attempt, username);
-            } catch (Exception ex) {
-                logger.warn("[{}] Unexpected error for {}", getClass().getSimpleName(), username, ex);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("[{}] IO error on attempt {} for {}, retrying...", 
+                            getClass().getSimpleName(), attempt, username);
+                }
+            } catch (Exception ex) { // NOSONAR - catch-all for API resilience
+                if (logger.isWarnEnabled()) {
+                    logger.warn("[{}] Unexpected error for {}", getClass().getSimpleName(), username, ex);
+                }
                 return PremiumResolution.unknown(id(), "unexpected");
             }
         }
@@ -160,7 +168,9 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
             return PremiumResolution.unknown(id(), "disabled");
         }
         if (isRateLimited()) {
-            logger.debug("[{}] Rate limited for {}", getClass().getSimpleName(), username);
+            if (logger.isDebugEnabled()) {
+                logger.debug("[{}] Rate limited for {}", getClass().getSimpleName(), username);
+            }
             return PremiumResolution.unknown(id(), "rate limited");
         }
         return null;
@@ -172,19 +182,25 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
             return PremiumResolution.offline(username, id(), "not found");
         }
         if (code != HttpURLConnection.HTTP_OK) {
-            logger.debug("[{}] HTTP {} for {}", getClass().getSimpleName(), code, username);
+            if (logger.isDebugEnabled()) {
+                logger.debug("[{}] HTTP {} for {}", getClass().getSimpleName(), code, username);
+            }
             return PremiumResolution.unknown(id(), "http " + code);
         }
         String body = response.body();
         String uuidStr = extractUuidField(body);
         String canonical = extractUsernameField(body);
         if (uuidStr == null || canonical == null) {
-            logger.debug("[{}] Missing fields for {}", getClass().getSimpleName(), username);
+            if (logger.isDebugEnabled()) {
+                logger.debug("[{}] Missing fields for {}", getClass().getSimpleName(), username);
+            }
             return PremiumResolution.unknown(id(), "missing fields");
         }
         UUID uuid = parseUuid(uuidStr);
         if (uuid == null || (uuid.getMostSignificantBits() == 0L && uuid.getLeastSignificantBits() == 0L)) {
-            logger.debug("[{}] Invalid uuid {} for {}", getClass().getSimpleName(), uuidStr, username);
+            if (logger.isDebugEnabled()) {
+                logger.debug("[{}] Invalid uuid {} for {}", getClass().getSimpleName(), uuidStr, username);
+            }
             return PremiumResolution.unknown(id(), "uuid parse error");
         }
         return PremiumResolution.premium(uuid, canonical, id());

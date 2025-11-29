@@ -47,6 +47,8 @@ class SimpleMessagesKeysTest {
             // Error messages
             "error.database.query",
             "error.unknown_command",
+            "error.unknown",
+            "error.connection.generic",
             // Security messages
             "security.brute_force.blocked",
             // Player conflict messages

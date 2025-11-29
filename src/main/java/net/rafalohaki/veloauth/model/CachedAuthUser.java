@@ -185,11 +185,15 @@ public final class CachedAuthUser {
      * Sprawdza czy IP się zgadza z cached IP.
      *
      * @param currentIp Aktualny IP gracza
-     * @return true jeśli IP się zgadza lub jeden z nich jest null
+     * @return true jeśli IP się zgadza, false jeśli nie zgadza lub currentIp jest null
      */
     public boolean matchesIp(String currentIp) {
-        if (loginIp == null || currentIp == null) {
-            return true; // Jeśli nie mamy IP, nie weryfikujemy
+        // CRITICAL FIX: Don't allow null currentIp to bypass authentication
+        if (currentIp == null) {
+            return false; // ❌ Null IP should not bypass auth
+        }
+        if (loginIp == null) {
+            return false; // ❌ No cached IP means not authenticated
         }
         return loginIp.equals(currentIp);
     }

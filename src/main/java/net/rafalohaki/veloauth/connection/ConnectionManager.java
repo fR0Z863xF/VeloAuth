@@ -383,19 +383,19 @@ public class ConnectionManager {
                 }
 
                 player.sendMessage(Component.text(
-                        "Nie udało się połączyć z serwerem autoryzacji. Spróbuj ponownie.",
+                        messages.get("connection.error.auth_connect"),
                         NamedTextColor.RED
                 ));
                 return false;
             }
         } catch (Exception e) {
             if (logger.isErrorEnabled()) {
-                logger.error("Błąd podczas transferu gracza {} na PicoLimbo: {}",
+                logger.error("Error transferring player {} to PicoLimbo: {}",
                         player.getUsername(), e.getMessage(), e);
             }
 
             player.sendMessage(Component.text(
-                    "Wystąpił błąd podczas łączenia z serwerem autoryzacji.",
+                    messages.get("connection.error.auth_server"),
                     NamedTextColor.RED
             ));
             return false;
@@ -415,10 +415,10 @@ public class ConnectionManager {
             Optional<RegisteredServer> backendServer = findAvailableBackendServer();
 
             if (backendServer.isEmpty()) {
-                logger.error("Brak dostępnych serwerów backend!");
+                logger.error("No available backend servers!");
 
                 player.sendMessage(Component.text(
-                        "Brak dostępnych serwerów gry. Spróbuj ponownie później.",
+                        messages.get("connection.error.no_servers"),
                         NamedTextColor.RED
                 ));
                 return false;
@@ -427,9 +427,9 @@ public class ConnectionManager {
             RegisteredServer targetServer = backendServer.get();
             String serverName = targetServer.getServerInfo().getName();
 
-            // Wyślij wiadomość o próbie połączenia
+            // Send connecting message
             player.sendMessage(Component.text(
-                    "Łączenie z serwerem gry...",
+                    messages.get("connection.connecting"),
                     NamedTextColor.YELLOW
             ));
 
@@ -442,10 +442,10 @@ public class ConnectionManager {
             return executeBackendTransfer(player, targetServer, serverName);
 
         } catch (Exception e) {
-            logger.error("Błąd podczas transferu gracza na backend: {}", player.getUsername(), e);
+            logger.error("Error transferring player to backend: {}", player.getUsername(), e);
 
             player.sendMessage(Component.text(
-                    "Wystąpił błąd podczas łączenia z serwerem gry.",
+                    messages.get("connection.error.game_server"),
                     NamedTextColor.RED
             ));
             return false;
@@ -468,24 +468,24 @@ public class ConnectionManager {
                 return true;
             } else {
                 if (logger.isWarnEnabled()) {
-                    logger.warn("Nie udało się przenieść gracza {} na serwer {}",
+                    logger.warn("Failed to transfer player {} to server {}",
                             player.getUsername(), serverName);
                 }
 
                 player.sendMessage(Component.text(
-                        "Nie udało się połączyć z serwerem gry. Spróbuj ponownie.",
+                        messages.get("connection.error.game_server"),
                         NamedTextColor.RED
                 ));
                 return false;
             }
         } catch (Exception e) {
             if (logger.isErrorEnabled()) {
-                logger.error("Błąd podczas transferu gracza {} na serwer {}: {}",
+                logger.error("Error transferring player {} to server {}: {}",
                         player.getUsername(), serverName, e.getMessage(), e);
             }
 
             player.sendMessage(Component.text(
-                    "Wystąpił błąd podczas łączenia z serwerem gry.",
+                    messages.get("connection.error.game_server"),
                     NamedTextColor.RED
             ));
             return false;
@@ -555,7 +555,7 @@ public class ConnectionManager {
             transferToPicoLimbo(player);
 
             player.sendMessage(Component.text(
-                    "Zostałeś wylogowany. Zaloguj się ponownie.",
+                    messages.get("auth.logged_out"),
                     NamedTextColor.YELLOW
             ));
 
@@ -639,21 +639,21 @@ public class ConnectionManager {
     // Helper methods for consistent messaging
     private void sendLoginMessage(Player player) {
         player.sendMessage(Component.text(
-                "Twoje konto już istnieje! Użyj /login <hasło>",
+                messages.get("auth.account_exists"),
                 NamedTextColor.GREEN
         ));
     }
 
     private void sendRegisterMessage(Player player) {
         player.sendMessage(Component.text(
-                "Witaj po raz pierwszy! Użyj /register <hasło> <powtórz>",
+                messages.get("auth.first_time"),
                 NamedTextColor.AQUA
         ));
     }
 
     private void sendGenericAuthMessage(Player player) {
         player.sendMessage(Component.text(
-                "Musisz się zalogować! Użyj /login <hasło> lub /register <hasło> <powtórz>",
+                messages.get("auth.prompt.generic"),
                 NamedTextColor.YELLOW
         ));
     }
@@ -663,6 +663,6 @@ public class ConnectionManager {
     }
 
     private Component createUnknownErrorComponent() {
-        return Component.text("Nieznany błąd", NamedTextColor.RED);
+        return Component.text(messages.get("error.unknown"), NamedTextColor.RED);
     }
 }

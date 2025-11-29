@@ -39,16 +39,17 @@ public class EarlyLoginBlocker {
 
         // CRITICAL: Block connections until plugin is fully initialized
         if (!plugin.isInitialized()) {
-            logger.warn("🔒 BLOKADA STARTU: Gracz {} próbował połączyć się przed pełną inicjalizacją VeloAuth - blokada EarlyLoginBlocker",
+            logger.warn("🔒 STARTUP BLOCK: Player {} tried to connect before VeloAuth fully initialized - EarlyLoginBlocker",
                     username);
+            // Use English fallback - Messages not available during startup
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text("VeloAuth się uruchamia. Spróbuj połączyć się ponownie za chwilę.",
+                    Component.text("VeloAuth is starting. Please try connecting again in a moment.",
                             NamedTextColor.RED)
             ));
             return;
         }
 
         // If initialized, allow normal processing by other handlers
-        logger.debug("EarlyLoginBlocker: VeloAuth zainicjalizowany, pozwalam na połączenie dla {}", username);
+        logger.debug("EarlyLoginBlocker: VeloAuth initialized, allowing connection for {}", username);
     }
 }

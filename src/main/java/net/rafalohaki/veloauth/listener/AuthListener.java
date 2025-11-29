@@ -111,14 +111,14 @@ public class AuthListener {
      *
      * @param isAuthorized     Whether player is authorized
      * @param hasActiveSession Whether player has active session
-     * @return Human-readable reason string
+     * @return Human-readable reason string (English for logs)
      */
     private static String resolveBlockReason(boolean isAuthorized, boolean hasActiveSession) {
         if (!isAuthorized) {
-            return "nieautoryzowany";
+            return "unauthorized";
         }
         if (!hasActiveSession) {
-            return "brak aktywnej sesji";
+            return "no active session";
         }
         return "UUID mismatch";
     }
@@ -148,10 +148,11 @@ public class AuthListener {
         // CRITICAL: Block connections until plugin is fully initialized
         if (!plugin.isInitialized()) {
             logger.warn(
-                    "🔒 BLOKADA STARTU: Gracz {} próbował połączyć się przed pełną inicjalizacją VeloAuth - blokada PreLogin",
+                    "🔒 STARTUP BLOCK: Player {} tried to connect before VeloAuth fully initialized - PreLogin block",
                     username);
+            // Use English fallback - Messages not available yet
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text("VeloAuth się uruchamia. Spróbuj połączyć się ponownie za chwilę.",
+                    Component.text("VeloAuth is starting. Please try connecting again in a moment.",
                             NamedTextColor.RED)));
             return;
         }
@@ -159,30 +160,29 @@ public class AuthListener {
         // DEFENSE-IN-DEPTH: Verify handlers are initialized
         if (preLoginHandler == null) {
             logger.error("CRITICAL: PreLoginHandler is null during event processing for player {}", username);
+            // Use English fallback - Messages might not be available
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text("Błąd inicjalizacji pluginu. Skontaktuj się z administratorem.",
+                    Component.text("Plugin initialization error. Please contact an administrator.",
                             NamedTextColor.RED)));
             return;
         }
 
         // WALIDACJA USERNAME - delegate to PreLoginHandler
         if (!preLoginHandler.isValidUsername(username)) {
-            String message = "Nieprawidłowy format nazwy użytkownika! Użyj tylko liter, cyfr i podkreślenia (max 16 znaków).";
             logger.warn(SECURITY_MARKER, "[USERNAME VALIDATION FAILED] {} - invalid format", username);
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text(message, NamedTextColor.RED)));
+                    Component.text(messages.get("validation.username.invalid"), NamedTextColor.RED)));
             return;
         }
 
-        // Sprawdź brute force na poziomie IP PRZED jakimkolwiek przetwarzaniem
+        // Check brute force at IP level BEFORE any processing
         InetAddress playerAddress = PlayerAddressUtils.getAddressFromPreLogin(event);
         if (playerAddress != null && preLoginHandler.isBruteForceBlocked(playerAddress)) {
-            String message = "Zbyt wiele nieudanych prób logowania. Spróbuj ponownie później.";
             if (logger.isWarnEnabled()) {
-                logger.warn(SECURITY_MARKER, "[BRUTE FORCE BLOCK] IP {} zablokowany", playerAddress.getHostAddress());
+                logger.warn(SECURITY_MARKER, "[BRUTE FORCE BLOCK] IP {} blocked", playerAddress.getHostAddress());
             }
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text(message, NamedTextColor.RED)));
+                    Component.text(messages.get("security.brute_force.blocked"), NamedTextColor.RED)));
             return;
         }
 
@@ -236,11 +236,11 @@ public class AuthListener {
             // CRITICAL SECURITY: Block login attempts until plugin is fully initialized
             if (!plugin.isInitialized()) {
                 logger.warn(
-                        "🔒 BLOKADA STARTU: Gracz {} próbował zalogować się przed pełną inicjalizacją VeloAuth - blokada logowania",
+                        "🔒 STARTUP BLOCK: Player {} tried to login before VeloAuth fully initialized - login block",
                         playerName);
-
+                // Use English fallback - Messages not available yet
                 event.setResult(ComponentResult.denied(
-                        Component.text("VeloAuth się uruchamia. Spróbuj zalogować się ponownie za chwilę.",
+                        Component.text("VeloAuth is starting. Please try logging in again in a moment.",
                                 NamedTextColor.RED)));
                 return;
             }
@@ -248,28 +248,24 @@ public class AuthListener {
             logger.debug("LoginEvent dla gracza {} (UUID: {}) z IP {}",
                     playerName, playerUuid, playerIp);
 
-            // 1. Sprawdź blokadę brute force
+            // 1. Check brute force block
             InetAddress playerAddress = PlayerAddressUtils.getPlayerAddress(player);
             if (playerAddress != null && authCache.isBlocked(playerAddress)) {
-                String message = String.format(
-                        "Zablokowano połączenie gracza %s za zbyt wiele nieudanych prób logowania",
+                logger.warn(SECURITY_MARKER, "Blocked connection for player {} - too many failed login attempts",
                         playerName);
-                logger.warn(SECURITY_MARKER, message);
 
                 event.setResult(ComponentResult.denied(
-                        Component.text("Zbyt wiele nieudanych prób logowania. Spróbuj ponownie później.",
-                                NamedTextColor.RED)));
+                        Component.text(messages.get("security.brute_force.blocked"), NamedTextColor.RED)));
                 return;
             }
 
             // Premium check został przeniesiony do PreLoginEvent
 
         } catch (Exception e) {
-            logger.error("Błąd podczas obsługi LoginEvent dla gracza: {}", event.getPlayer().getUsername(), e);
+            logger.error("Error handling LoginEvent for player: {}", event.getPlayer().getUsername(), e);
 
             event.setResult(ComponentResult.denied(
-                    Component.text("Wystąpił błąd podczas łączenia. Spróbuj ponownie.",
-                            NamedTextColor.RED)));
+                    Component.text(messages.get("connection.error.generic"), NamedTextColor.RED)));
             allowed = false;
         }
 
@@ -316,8 +312,9 @@ public class AuthListener {
         if (postLoginHandler == null) {
             logger.error("CRITICAL: PostLoginHandler is null during event processing for player {}", 
                 player.getUsername());
+            // Use English fallback - Messages might not be available
             player.disconnect(Component.text(
-                    "Błąd inicjalizacji pluginu. Skontaktuj się z administratorem.",
+                    "Plugin initialization error. Please contact an administrator.",
                     NamedTextColor.RED));
             return;
         }
@@ -338,10 +335,10 @@ public class AuthListener {
             postLoginHandler.handleOfflinePlayer(player, playerIp);
 
         } catch (Exception e) {
-            logger.error("Błąd podczas obsługi PostLoginEvent dla gracza: {}", event.getPlayer().getUsername(), e);
+            logger.error("Error handling PostLoginEvent for player: {}", event.getPlayer().getUsername(), e);
 
             event.getPlayer().disconnect(Component.text(
-                    "Wystąpił błąd podczas łączenia. Spróbuj ponownie.",
+                    messages.get("connection.error.generic"),
                     NamedTextColor.RED));
         }
     }
@@ -407,7 +404,7 @@ public class AuthListener {
                 player.sendMessage(Component.text()
                         .content("❌ ")
                         .color(NamedTextColor.RED)
-                        .append(Component.text("Musisz się zalogować na auth!")
+                        .append(Component.text(messages.get("auth.must_login"))
                                 .color(NamedTextColor.RED))
                         .build());
 
@@ -431,8 +428,8 @@ public class AuthListener {
     }
 
     /**
-     * Obsługuje event połączenia z serwerem.
-     * Loguje transfery graczy między serwerami.
+     * Handles server connected event.
+     * Logs player transfers between servers and sends appropriate messages.
      */
     @Subscribe(priority = -200) // LAST priority
     public void onServerConnected(ServerConnectedEvent event) {
@@ -440,44 +437,40 @@ public class AuthListener {
             Player player = event.getPlayer();
             String serverName = event.getServer().getServerInfo().getName();
 
-            logger.debug("ServerConnectedEvent dla gracza {} -> serwer {}",
+            logger.debug("ServerConnectedEvent for player {} -> server {}",
                     player.getUsername(), serverName);
 
-            // Loguj transfer na backend (debug level to reduce spam)
+            // Log transfer to backend (debug level to reduce spam)
             if (!serverName.equals(settings.getPicoLimboServerName())) {
                 if (logger.isDebugEnabled()) {
                     logger.debug(AUTH_MARKER, messages.get("player.connected.backend"),
                             player.getUsername(), serverName);
                 }
 
-                // Wyślij wiadomość powitalną
+                // Send welcome message
                 player.sendMessage(Component.text(
-                        "Witaj na serwerze! Miłej gry!",
+                        messages.get("general.welcome.full"),
                         NamedTextColor.GREEN));
             } else {
                 if (logger.isDebugEnabled()) {
-                    logger.debug(AUTH_MARKER, "Gracz {} połączył się z PicoLimbo", player.getUsername());
+                    logger.debug(AUTH_MARKER, "ServerConnected to PicoLimbo: {}", player.getUsername());
                 }
 
-                // Wyślij instrukcje logowania
+                // Send login instructions
                 player.sendMessage(Component.text(
-                        "=== Autoryzacja VeloAuth ===",
+                        messages.get("auth.header"),
                         NamedTextColor.GOLD));
                 player.sendMessage(Component.text(
-                        "Jeśli masz konto: /login <hasło>",
+                        messages.get("auth.prompt.login"),
                         NamedTextColor.YELLOW));
                 player.sendMessage(Component.text(
-                        "Jeśli nie masz konta: /register <hasło> <powtórz>",
+                        messages.get("auth.prompt.register"),
                         NamedTextColor.YELLOW));
             }
-
         } catch (Exception e) {
-            logger.error("Błąd podczas obsługi ServerConnectedEvent", e);
+            logger.error("Error in ServerConnected", e);
         }
     }
-
-
-
 
 
     /**

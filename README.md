@@ -4,6 +4,21 @@
 [![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/e2RkPbc3ZR)
 
 **Complete Velocity Authentication Plugin** with BCrypt, Virtual Threads and multi-database support.
+
+## Quick Start (5 minutes)
+
+1. **Install:** Copy `veloauth-1.0.1.jar` to `plugins/`
+2. **Configure velocity.toml:**
+   ```toml
+   [servers]
+   lobby = "127.0.0.1:25566"  # PicoLimbo
+   survival = "127.0.0.1:25565"  # Backend
+   
+   try = ["survival"]  # Send players here after login
+   ```
+3. **Configure config.yml:** Set database (H2 works out-of-box)
+4. **Restart Velocity** - Ready!
+
 ## Description
 
 VeloAuth is an **authorization manager for Velocity proxy** that handles player transfers between Velocity, PicoLimbo and backend servers. The plugin supports all authorization operations on the proxy.
@@ -47,9 +62,17 @@ Download from releases
 Add PicoLimbo to `velocity.toml`:
 ```toml
 [servers]
-lobby = "127.0.0.1:25566"  # PicoLimbo
+lobby = "127.0.0.1:25566"  # PicoLimbo (auth server)
 survival = "127.0.0.1:25565"  # Backend server
+
+try = ["lobby", "survival"]  # Order matters for lobby redirect
 ```
+
+**Important:** The `try` configuration controls where players are sent after authentication. VeloAuth will:
+1. Try servers in the order specified in `try` list
+2. Skip the PicoLimbo server automatically  
+3. Use the first available server from the list
+4. Fallback to any available backend server if none in `try` are reachable
 
 ## Configuration
 
@@ -99,20 +122,21 @@ premium:
 
 ### Player Commands
 
-| Command | Description |
-|---------|-------------|
-| `/register <password> <confirm>` | Register new account |
-| `/login <password>` | Login to account |
-| `/changepassword <old> <new>` | Change password |
+| Command | Description | Restrictions |
+|---------|-------------|--------------|
+| `/register <password> <confirm>` | Register new account | Cannot use premium nicknames |
+| `/login <password>` | Login to account | Works for both premium/cracked |
+| `/changepassword <old> <new>` | Change password | Must be logged in |
 
 ### Admin Commands
 
 | Command | Permission | Description |
 |---------|------------|-------------|
-| `/unregister <nickname>` | `veloauth.admin` | Remove player account |
+| `/unregister <nickname>` | `veloauth.admin` | Remove player account (resolves conflicts) |
 | `/vauth reload` | `veloauth.admin` | Reload configuration |
 | `/vauth cache-reset [player]` | `veloauth.admin` | Clear cache |
 | `/vauth stats` | `veloauth.admin` | Show statistics |
+| `/vauth conflicts` | `veloauth.admin` | List nickname conflicts |
 
 ## Authorization Algorithm
 
@@ -123,7 +147,81 @@ ConnectionEvent → VeloAuth checks cache
 └─ Cache MISS → Transfer to PicoLimbo
 ```
 
-### 2. Player on PicoLimbo
+### 2. Nickname Protection (USE_OFFLINE Strategy)
+VeloAuth protects nickname ownership with intelligent conflict resolution:
+
+#### Premium Nickname Protection
+```
+Is nickname premium? → Check if already registered by cracked player
+├─ NOT REGISTERED → Allow premium registration (nickname reserved for premium)
+├─ ALREADY REGISTERED → Enter CONFLICT MODE
+│  ├─ Premium player can login with cracked password (temporary access)
+│  └─ Admin must resolve conflict or player changes nickname on Mojang.com
+└─ CRACKED PLAYER tries premium nickname → BLOCK registration
+```
+
+#### Conflict Resolution Flow
+1. **Premium player** tries nickname owned by **cracked player**:
+   - System detects conflict
+   - Shows resolution options to premium player
+   - Allows temporary login with cracked password
+   - Admin can resolve conflict or player changes nickname
+
+2. **Cracked player** tries **premium nickname**:
+   - Registration blocked immediately
+   - Must choose different nickname
+
+3. **Admin tools** for conflict management:
+   - `/vauth conflicts` - List all active conflicts
+   - `/unregister <nickname>` - Remove conflicted account
+
+#### Quick Reference: Decision Table
+
+| Player Type | Action | Result |
+|-------------|--------|--------|
+| **Cracked** | Tries premium nickname | ❌ BLOCKED - must choose different nickname |
+| **Premium** | Nickname already owned by cracked | ⚠️ CONFLICT MODE - can login with cracked password temporarily |
+| **Admin** | `/vauth conflicts` | 📋 Lists all active conflicts |
+| **Admin** | `/unregister <nick>` | 🗑️ Removes conflicted account, resolves conflict |
+
+#### Common Scenarios
+
+**Scenario 1: Premium player "Notch" joins, nickname already registered by cracked player**
+```
+Real Notch (premium) joins server
+↓
+System detects: "Notch" already registered by cracked player
+↓
+Shows message: "⚠️ Nickname conflict! This nickname is used by an offline player."
+↓
+Options:
+1. Login with cracked player's password (temporary access)
+2. Change nickname on Mojang.com to regain premium access
+```
+
+**Scenario 2: Cracked player tries to register premium nickname**
+```
+Cracked player tries: /register NotchPassword NotchPassword
+↓
+System detects: "Notch" is premium nickname
+↓
+Blocks registration with error message
+↓
+Player must choose different nickname
+```
+
+**Scenario 3: Admin resolves conflict**
+```
+Admin runs: /vauth conflicts
+↓
+Shows: "⚠ Found 1 conflict: Notch (Status: OFFLINE)"
+↓
+Admin runs: /unregister Notch
+↓
+Account removed, premium player can register normally
+```
+
+### 3. Player on PicoLimbo
 ```
 Player types: /login password or /register password password
 ↓
@@ -135,7 +233,7 @@ VELOCITY INTERCEPTS COMMAND
 └─ NO MATCH → Brute force counter (max 5 attempts, timeout 5 min)
 ```
 
-### 3. Player on Backend
+### 4. Player on Backend
 ```
 ConnectionEvent → Cache HIT → Direct Backend
 ```
@@ -181,6 +279,45 @@ VeloAuth is **compatible** with LimboAuth database - ignores `TOTPTOKEN` and `IS
 2. Install VeloAuth
 3. Configure the same database
 4. Start Velocity - VeloAuth will automatically detect existing accounts
+
+## Troubleshooting
+
+### Common Issues
+
+**Database Connection Failed**
+```
+ERROR/BASE error: Database connection failed
+```
+→ Check database credentials, ensure database is running, verify network connectivity
+
+**Permission Denied**
+```
+You don't have permission to use this command
+```
+→ Ensure admin has `veloauth.admin` permission in Velocity config
+
+**Players Stuck on PicoLimbo**
+→ Check `try` configuration in velocity.toml, ensure backend servers are online
+
+**Nickname Conflicts Not Working**
+→ Verify premium checking is enabled, check Mojang API connectivity
+
+### FAQ
+
+**Q: Can cracked players use premium nicknames?**
+A: No - VeloAuth blocks registration of premium nicknames by cracked players.
+
+**Q: What happens when a premium player tries to use a nickname already registered by a cracked player?**
+A: The system enters conflict mode, shows resolution options, and allows temporary login with the cracked password.
+
+**Q: How do I resolve nickname conflicts?**
+A: Use `/vauth conflicts` to list conflicts, then `/unregister <nickname>` to remove the conflicted account.
+
+**Q: Why aren't players being sent to the correct server after login?**
+A: Check your `try` configuration in velocity.toml - VeloAuth uses this order to select the destination server.
+
+**Q: Can I migrate from LimboAuth?**
+A: Yes - VeloAuth is fully compatible with LimboAuth database format.
 
 ## License
 

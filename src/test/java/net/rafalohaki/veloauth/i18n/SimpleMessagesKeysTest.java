@@ -44,6 +44,11 @@ class SimpleMessagesKeysTest {
             "auth.changepassword.success",
             "auth.changepassword.incorrect_old_password",
             "auth.register.passwords_no_match",
+            // Unregister messages
+            "auth.unregister.usage",
+            "auth.unregister.success",
+            "auth.unregister.wrong_password",
+            "admin.unregister.usage",
             // Error messages
             "error.database.query",
             "error.unknown_command",

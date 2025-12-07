@@ -493,17 +493,53 @@ public class ConnectionManager {
     }
 
     /**
-     * Znajduje dostępny serwer backend (nie PicoLimbo).
+     * Znajduje dostępny serwer backend używając Velocity try servers configuration.
+     * Iteruje przez listę serwerów z velocity.toml [servers.try] w kolejności.
      *
      * @return Optional z dostępny serwer backend
      */
     private Optional<RegisteredServer> findAvailableBackendServer() {
         String picoLimboName = settings.getPicoLimboServerName();
-
+        
+        // Użyj Velocity try servers configuration
+        var tryServers = plugin.getServer().getConfiguration().getAttemptConnectionOrder();
+        
+        if (logger.isDebugEnabled()) {
+            logger.debug("Velocity try servers: {}", tryServers);
+        }
+        
+        // Iteruj przez try servers w kolejności z konfiguracji Velocity
+        for (String serverName : tryServers) {
+            // Pomiń PicoLimbo - to jest serwer auth, nie docelowy
+            if (serverName.equals(picoLimboName)) {
+                logger.debug("Pomijam PicoLimbo server: {}", serverName);
+                continue;
+            }
+            
+            Optional<RegisteredServer> server = plugin.getServer().getServer(serverName);
+            if (server.isEmpty()) {
+                logger.debug("Serwer {} z try nie jest zarejestrowany", serverName);
+                continue;
+            }
+            
+            RegisteredServer registeredServer = server.get();
+            
+            // Sprawdź czy serwer jest dostępny (ping)
+            try {
+                if (registeredServer.ping().join() != null) {
+                    logger.debug("Znaleziono dostępny serwer z try: {}", serverName);
+                    return Optional.of(registeredServer);
+                }
+            } catch (Exception e) {
+                logger.debug("Serwer {} z try niedostępny: {}", serverName, e.getMessage());
+            }
+        }
+        
+        // Fallback: jeśli żaden try server nie jest dostępny, spróbuj dowolny inny
+        logger.warn("Żaden serwer z try nie jest dostępny, próbuję fallback...");
         return plugin.getServer().getAllServers().stream()
                 .filter(server -> !server.getServerInfo().getName().equals(picoLimboName))
                 .filter(server -> {
-                    // Sprawdź czy serwer jest dostępny (ping)
                     try {
                         return server.ping().join() != null;
                     } catch (Exception e) {

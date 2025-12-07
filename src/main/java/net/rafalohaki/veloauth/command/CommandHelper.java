@@ -49,16 +49,6 @@ public final class CommandHelper {
         }
         return true;
     }
-    
-    /**
-     * Checks if source has admin permission (without sending error message).
-     *
-     * @param source Command source to check
-     * @return true if has permission, false if not
-     */
-    public static boolean hasAdminPermission(CommandSource source) {
-        return source.hasPermission("veloauth.admin");
-    }
 
     /**
      * Sends an error message to the command source.

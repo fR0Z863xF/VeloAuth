@@ -530,9 +530,8 @@ public class CommandHandler {
     }
 
     /**
-     * Komenda /unregister - dla graczy i adminów
-     * Gracz: /unregister <hasło> - usuwa własne konto po potwierdzeniu hasłem
-     * Admin: /unregister <nickname> - usuwa konto dowolnego gracza
+     * Komenda /unregister <nickname> - tylko dla admina
+     * Usuwa konto gracza z bazy danych.
      */
     private class UnregisterCommand implements SimpleCommand {
 
@@ -542,16 +541,10 @@ public class CommandHandler {
             CommandSource source = invocation.source();
             String[] args = invocation.arguments();
 
-            // Sprawdź czy to admin (console lub gracz z uprawnieniami)
-            boolean isAdmin = CommandHelper.hasAdminPermission(source);
-            
-            // Jeśli to gracz bez uprawnień admina - self-unregister
-            if (source instanceof Player player && !isAdmin) {
-                handlePlayerSelfUnregister(player, args);
+            if (!CommandHelper.checkAdminPermission(source, messages)) {
                 return;
             }
-            
-            // Admin mode - wymaga nicku
+
             if (args.length != 1) {
                 CommandHelper.sendError(source, messages, "admin.unregister.usage");
                 return;
@@ -562,82 +555,6 @@ public class CommandHandler {
             // Asynchroniczne usuwanie konta z Virtual Threads
             CommandHelper.runAsyncCommand(() -> processAdminUnregistration(source, nickname),
                     messages, source, ERROR_DATABASE_QUERY);
-        }
-        
-        private void handlePlayerSelfUnregister(Player player, String[] args) {
-            if (args.length != 1) {
-                player.sendMessage(ValidationUtils.createWarningComponent(messages.get("auth.unregister.usage")));
-                return;
-            }
-            
-            String password = args[0];
-            
-            // Asynchroniczne usuwanie konta z Virtual Threads
-            CommandHelper.runAsyncCommand(() -> processPlayerSelfUnregister(player, password),
-                    messages, player, ERROR_DATABASE_QUERY);
-        }
-        
-        private void processPlayerSelfUnregister(Player player, String password) {
-            try {
-                String username = player.getUsername();
-                
-                // Znajdź gracza w bazie
-                var dbResult = databaseManager.findPlayerByNickname(username).join();
-                
-                if (dbResult.isDatabaseError()) {
-                    logger.error(DB_MARKER, "Database error during self-unregister for {}: {}", 
-                            username, dbResult.getErrorMessage());
-                    sendDatabaseErrorMessage(player);
-                    return;
-                }
-                
-                RegisteredPlayer registeredPlayer = dbResult.getValue();
-                if (registeredPlayer == null) {
-                    player.sendMessage(sm.notRegistered());
-                    return;
-                }
-                
-                // Weryfikuj hasło
-                BCrypt.Result bcryptResult = BCrypt.verifyer().verify(password.toCharArray(), registeredPlayer.getHash());
-                if (!bcryptResult.verified) {
-                    player.sendMessage(ValidationUtils.createErrorComponent(messages.get("auth.unregister.wrong_password")));
-                    logger.warn(SECURITY_MARKER, "Failed self-unregister attempt for {} - wrong password from IP {}",
-                            username, PlayerAddressUtils.getPlayerIp(player));
-                    return;
-                }
-                
-                // Usuń konto z bazy danych
-                var deleteResult = databaseManager.deletePlayer(username).join();
-                
-                if (deleteResult.isDatabaseError()) {
-                    logger.error(DB_MARKER, "Database error during self-unregister delete for {}: {}",
-                            username, deleteResult.getErrorMessage());
-                    sendDatabaseErrorMessage(player);
-                    return;
-                }
-                
-                boolean deleted = Boolean.TRUE.equals(deleteResult.getValue());
-                if (deleted) {
-                    // Wyczyść cache
-                    authCache.removeAuthorizedPlayer(player.getUniqueId());
-                    authCache.endSession(player.getUniqueId());
-                    authCache.removePremiumPlayer(username);
-                    
-                    logger.info(AUTH_MARKER, "Gracz {} usunął własne konto z IP {}",
-                            username, PlayerAddressUtils.getPlayerIp(player));
-                    
-                    // Rozłącz gracza z wiadomością
-                    player.disconnect(ValidationUtils.createSuccessComponent(messages.get("auth.unregister.success")));
-                    
-                } else {
-                    sendDatabaseErrorMessage(player);
-                    logger.error(DB_MARKER, "Nie udało się usunąć konta gracza {} (self-unregister)", username);
-                }
-                
-            } catch (Exception e) {
-                logger.error(DB_MARKER, "Błąd podczas self-unregister gracza: {}", player.getUsername(), e);
-                sendDatabaseErrorMessage(player);
-            }
         }
 
         private void processAdminUnregistration(CommandSource source, String nickname) {

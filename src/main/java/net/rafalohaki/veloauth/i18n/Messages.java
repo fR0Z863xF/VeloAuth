@@ -169,7 +169,7 @@ public class Messages {
         if (useExternalFiles) {
             return getFromBundle(key, args);
         } else {
-            return get(currentLanguage, key, args);
+            return getForLanguage(currentLanguage, key, args);
         }
     }
 
@@ -181,7 +181,7 @@ public class Messages {
      * @param args     Arguments for message formatting
      * @return Formatted message or the key if not found
      */
-    public String get(String language, String key, Object... args) {
+    public String getForLanguage(String language, String key, Object... args) {
         Properties messages = loadMessages(language);
         String message = messages.getProperty(key);
 

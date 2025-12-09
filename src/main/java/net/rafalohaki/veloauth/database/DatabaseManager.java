@@ -646,10 +646,12 @@ public class DatabaseManager {
     /**
      * Usuwa gracza z bazy danych i odświeża cache.
      */
-    public CompletableFuture<DbResult<Boolean>> deletePlayer(String lowercaseNickname) {
-        if (lowercaseNickname == null || lowercaseNickname.isEmpty()) {
+    public CompletableFuture<DbResult<Boolean>> deletePlayer(String nickname) {
+        if (nickname == null || nickname.isEmpty()) {
             return CompletableFuture.completedFuture(DbResult.success(false));
         }
+
+        String normalizedNickname = nickname.toLowerCase();
 
         return CompletableFuture.supplyAsync(() -> {
             DbResult<Void> connectionResult = validateDatabaseConnection();
@@ -657,7 +659,7 @@ public class DatabaseManager {
                 return DbResult.databaseError(connectionResult.getErrorMessage());
             }
 
-            return executePlayerDelete(lowercaseNickname);
+            return executePlayerDelete(normalizedNickname);
         }, dbExecutor);
     }
 

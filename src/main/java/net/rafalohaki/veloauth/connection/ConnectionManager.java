@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Manager połączeń i transferów graczy między serwerami.
@@ -316,12 +317,12 @@ public class ConnectionManager {
      */
     private boolean executePicoLimboTransfer(Player player, RegisteredServer targetServer) {
         try {
-            // FIX: Add small delay to prevent race conditions during initial connection
-            // PicoLimbo might not be ready to accept connections immediately
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
+            // FIX: Ensure PicoLimbo is ready before connecting using Ping check
+            // This prevents race conditions better than a blind sleep
+            if (!waitForPicoLimboReady(targetServer)) {
+                if (logger.isWarnEnabled()) {
+                    logger.warn("PicoLimbo not responding to ping after retries - attempting connection anyway...");
+                }
             }
 
             var result = player.createConnectionRequest(targetServer)
@@ -359,6 +360,27 @@ public class ConnectionManager {
             ));
             return false;
         }
+    }
+
+    private boolean waitForPicoLimboReady(RegisteredServer targetServer) {
+        // Attempt to ping server 3 times with small delays
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                // Short timeout for ping check
+                var ping = targetServer.ping()
+                        .orTimeout(1, TimeUnit.SECONDS)
+                        .join();
+                if (ping != null) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // Ping failed, retry
+            }
+            
+            // Small delay between attempts using LockSupport (thread-safe sleep)
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
+        }
+        return false;
     }
 
     /**

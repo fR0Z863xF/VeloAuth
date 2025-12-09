@@ -8,7 +8,6 @@ import net.rafalohaki.veloauth.VeloAuth;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.database.DatabaseManager;
-import net.rafalohaki.veloauth.database.DatabaseManager.DbResult;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
@@ -38,6 +37,7 @@ public class ConnectionManager {
 
     private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
     private static final long CONNECT_TIMEOUT_SECONDS = 5;
+    private static final String CONNECTION_ERROR_GAME_SERVER = "connection.error.game_server";
 
     private final VeloAuth plugin;
     private final DatabaseManager databaseManager;
@@ -319,10 +319,8 @@ public class ConnectionManager {
         try {
             // FIX: Ensure PicoLimbo is ready before connecting using Ping check
             // This prevents race conditions better than a blind sleep
-            if (!waitForPicoLimboReady(targetServer)) {
-                if (logger.isWarnEnabled()) {
-                    logger.warn("PicoLimbo not responding to ping after retries - attempting connection anyway...");
-                }
+            if (!waitForPicoLimboReady(targetServer) && logger.isWarnEnabled()) {
+                logger.warn("PicoLimbo not responding to ping after retries - attempting connection anyway...");
             }
 
             var result = player.createConnectionRequest(targetServer)
@@ -426,7 +424,7 @@ public class ConnectionManager {
             logger.error("Error transferring player to backend: {}", player.getUsername(), e);
 
             player.sendMessage(Component.text(
-                    messages.get("connection.error.game_server"),
+                    messages.get(CONNECTION_ERROR_GAME_SERVER),
                     NamedTextColor.RED
             ));
             return false;
@@ -455,7 +453,7 @@ public class ConnectionManager {
                 }
 
                 player.sendMessage(Component.text(
-                        messages.get("connection.error.game_server"),
+                        messages.get(CONNECTION_ERROR_GAME_SERVER),
                         NamedTextColor.RED
                 ));
                 return false;
@@ -467,7 +465,7 @@ public class ConnectionManager {
             }
 
             player.sendMessage(Component.text(
-                    messages.get("connection.error.game_server"),
+                    messages.get(CONNECTION_ERROR_GAME_SERVER),
                     NamedTextColor.RED
             ));
             return false;
@@ -507,13 +505,8 @@ public class ConnectionManager {
             RegisteredServer registeredServer = server.get();
             
             // Sprawdź czy serwer jest dostępny (ping)
-            try {
-                if (registeredServer.ping().orTimeout(2, TimeUnit.SECONDS).join() != null) {
-                    logger.debug("Znaleziono dostępny serwer z try: {}", serverName);
-                    return Optional.of(registeredServer);
-                }
-            } catch (Exception e) {
-                logger.debug("Serwer {} z try niedostępny: {}", serverName, e.getMessage());
+            if (isServerAvailable(registeredServer, serverName)) {
+                return Optional.of(registeredServer);
             }
         }
         
@@ -521,16 +514,20 @@ public class ConnectionManager {
         logger.warn("Żaden serwer z try nie jest dostępny, próbuję fallback...");
         return plugin.getServer().getAllServers().stream()
                 .filter(server -> !server.getServerInfo().getName().equals(picoLimboName))
-                .filter(server -> {
-                    try {
-                        return server.ping().join() != null;
-                    } catch (Exception e) {
-                        logger.debug("Serwer {} niedostępny: {}",
-                                server.getServerInfo().getName(), e.getMessage());
-                        return false;
-                    }
-                })
+                .filter(server -> isServerAvailable(server, server.getServerInfo().getName()))
                 .findFirst();
+    }
+
+    private boolean isServerAvailable(RegisteredServer server, String serverName) {
+        try {
+            if (server.ping().orTimeout(2, TimeUnit.SECONDS).join() != null) {
+                logger.debug("Znaleziono dostępny serwer: {}", serverName);
+                return true;
+            }
+        } catch (Exception e) {
+            logger.debug("Serwer {} niedostępny: {}", serverName, e.getMessage());
+        }
+        return false;
     }
 
     /**
@@ -655,27 +652,6 @@ public class ConnectionManager {
     }
 
     // Helper methods for consistent messaging
-    private void sendLoginMessage(Player player) {
-        player.sendMessage(Component.text(
-                messages.get("auth.account_exists"),
-                NamedTextColor.GREEN
-        ));
-    }
-
-    private void sendRegisterMessage(Player player) {
-        player.sendMessage(Component.text(
-                messages.get("auth.first_time"),
-                NamedTextColor.AQUA
-        ));
-    }
-
-    private void sendGenericAuthMessage(Player player) {
-        player.sendMessage(Component.text(
-                messages.get("auth.prompt.generic"),
-                NamedTextColor.YELLOW
-        ));
-    }
-
     private void disconnectWithError(Player player, String message) {
         player.disconnect(Component.text(message, NamedTextColor.RED));
     }

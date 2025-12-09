@@ -242,6 +242,9 @@ public final class DatabaseConfig {
             // Not user-controllable - driverClass comes from hardcoded DatabaseType enum values
             @SuppressWarnings("java:S2658") // Driver class name is derived from trusted enum mapping
             Class<?> driver = Class.forName(driverClass); // NOSONAR
+            if (driver == null) {
+                throw new ClassNotFoundException("Driver class loaded as null");
+            }
         } catch (ClassNotFoundException e) {
             throw new IllegalStateException("Nie znaleziono sterownika JDBC: " + driverClass, e);
         }

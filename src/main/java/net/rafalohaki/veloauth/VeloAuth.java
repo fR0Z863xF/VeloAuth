@@ -49,7 +49,7 @@ import java.util.concurrent.CompletableFuture;
 @Plugin(
         id = "veloauth",
         name = "VeloAuth",
-        version = "1.0.1",
+        version = BuildConstants.VERSION,
         description = "Complete Velocity Authentication Plugin with BCrypt, Virtual Threads and multi-database support",
         authors = {"Rafal"}
 )
@@ -94,6 +94,7 @@ public class VeloAuth {
         this.dataDirectory = dataDirectory;
         this.metricsFactory = metricsFactory;
         
+        logger.info("VeloAuth instance created.");
                 
         if (logger.isDebugEnabled()) {
             logger.debug("VeloAuth konstruktor - Java {}, Velocity API {}",
@@ -123,7 +124,12 @@ public class VeloAuth {
      */
     @Subscribe
     public void onProxyInitialize(ProxyInitializeEvent event) {
-        logger.info("Loading VeloAuth v{}...", getVersion());
+        try {
+            logger.info("Loading VeloAuth v{}...", getVersion());
+        } catch (Throwable t) {
+            logger.error("Failed to retrieve version from BuildConstants", t);
+            logger.info("Loading VeloAuth (version unknown)...");
+        }
 
         // Conditional logging to avoid unnecessary string concatenation
         if (logger.isDebugEnabled()) {
@@ -186,12 +192,18 @@ public class VeloAuth {
      */
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
-        if (logger.isInfoEnabled()) {
+        if (messages != null && logger.isInfoEnabled()) {
             logger.info(messages.get("plugin.initialization.shutdown"));
+        } else if (logger.isInfoEnabled()) {
+            logger.info("VeloAuth - Shutdown");
         }
+        
         shutdown();
-        if (logger.isInfoEnabled()) {
+        
+        if (messages != null && logger.isInfoEnabled()) {
             logger.info(messages.get("plugin.initialization.closed"));
+        } else if (logger.isInfoEnabled()) {
+            logger.info("VeloAuth - Closed");
         }
     }
 
@@ -632,6 +644,6 @@ public class VeloAuth {
      * @return Wersja pluginu
      */
     public String getVersion() {
-        return "1.0.1";
+        return BuildConstants.VERSION;
     }
 }

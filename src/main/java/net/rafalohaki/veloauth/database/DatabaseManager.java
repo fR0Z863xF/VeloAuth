@@ -1018,11 +1018,11 @@ public class DatabaseManager {
      * Wykonuje ALTER TABLE statement w bezpieczny sposób.
      * Używa stałych wartości - nie ma ryzyka SQL injection.
      */
+    @SuppressWarnings("java:S2077") // SQL Injection safe - internal migration constants only
     private void executeAlterTable(java.sql.Connection connection, String sql) throws SQLException {
         // SQL Injection safe: Using constant SQL string, not user input
         try (java.sql.Statement stmt = connection.createStatement()) {
-            @SuppressWarnings("java:S2077") // SQL Injection safe - internal migration constants only
-            boolean executed = stmt.execute(sql); 
+            stmt.execute(sql);
         }
     }
 

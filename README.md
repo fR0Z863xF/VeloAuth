@@ -4,8 +4,7 @@
 
 # VeloAuth
 
-[![Modrinth](https://img.shields.io/modrinth/dt/veloauth?logo=modrinth&label=Modrinth&color=00AF5C)](https://modrinth.com/plugin/veloauth)
-[![Discord](https://img.shields.io/discord/e2RkPbc3ZR?logo=discord&label=Discord&color=5865F2)](https://discord.gg/e2RkPbc3ZR)
+[![Modrinth](https://img.shields.io/badge/Modrinth-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/plugin/veloauth) [![Discord](https://img.shields.io/badge/Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/e2RkPbc3ZR)
 [![License](https://img.shields.io/github/license/rafalohaki/veloauth)](LICENSE)
 
 **Complete Velocity authentication plugin** with intelligent nickname protection, premium auto-login, and secure offline player management.

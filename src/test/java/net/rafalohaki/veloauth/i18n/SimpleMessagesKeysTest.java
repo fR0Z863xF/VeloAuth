@@ -156,6 +156,8 @@ class SimpleMessagesKeysTest {
             "admin.conflicts.tip_premium",
             "admin.conflicts.tip_offline",
             "admin.conflicts.tip_admin",
+            "admin.conflicts.uuid",
+            "admin.conflicts.ip",
             // Error messages
             "error.permission",
             // Plugin initialization

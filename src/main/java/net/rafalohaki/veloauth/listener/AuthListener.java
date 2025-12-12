@@ -152,7 +152,7 @@ public class AuthListener {
                     username);
             // Use English fallback - Messages not available yet
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text("VeloAuth is starting. Please try connecting again in a moment.",
+                    Component.text(messages.get("system.starting"),
                             NamedTextColor.RED)));
             return;
         }
@@ -162,7 +162,7 @@ public class AuthListener {
             logger.error("CRITICAL: PreLoginHandler is null during event processing for player {}", username);
             // Use English fallback - Messages might not be available
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text("Plugin initialization error. Please contact an administrator.",
+                    Component.text(messages.get("system.init_error"),
                             NamedTextColor.RED)));
             return;
         }
@@ -240,7 +240,7 @@ public class AuthListener {
                         playerName);
                 // Use English fallback - Messages not available yet
                 event.setResult(ComponentResult.denied(
-                        Component.text("VeloAuth is starting. Please try logging in again in a moment.",
+                        Component.text(messages.get("system.starting"),
                                 NamedTextColor.RED)));
                 return;
             }
@@ -314,7 +314,7 @@ public class AuthListener {
                 player.getUsername());
             // Use English fallback - Messages might not be available
             player.disconnect(Component.text(
-                    "Plugin initialization error. Please contact an administrator.",
+                    messages.get("system.init_error"),
                     NamedTextColor.RED));
             return;
         }

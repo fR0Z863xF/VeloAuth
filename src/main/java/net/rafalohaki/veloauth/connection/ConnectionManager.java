@@ -108,7 +108,7 @@ public class ConnectionManager {
                     player.getUsername());
 
             player.disconnect(Component.text(
-                    "VeloAuth się uruchamia. Spróbuj połączyć się ponownie za chwilę.",
+                    messages.get("system.starting"),
                     NamedTextColor.RED
             ));
             return false;
@@ -122,7 +122,7 @@ public class ConnectionManager {
                     player.getUsername(), playerIp);
 
             player.disconnect(Component.text(
-                    "Zbyt wiele nieudanych prób logowania. Spróbuj ponownie później.",
+                    messages.get("security.brute_force.blocked"),
                     NamedTextColor.RED
             ));
             return true;
@@ -158,7 +158,7 @@ public class ConnectionManager {
         }
 
         player.disconnect(Component.text(
-                "Wystąpił błąd podczas łączenia. Spróbuj ponownie.",
+                messages.get("connection.error.generic"),
                 NamedTextColor.RED
         ));
         return false;
@@ -181,7 +181,7 @@ public class ConnectionManager {
                 authCache.removeAuthorizedPlayer(player.getUniqueId());
                 authCache.endSession(player.getUniqueId());
                 player.disconnect(Component.text(
-                        "Wystąpił błąd weryfikacji bazy danych. Spróbuj ponownie później.",
+                        messages.get("connection.error.database"),
                         NamedTextColor.RED
                 ));
                 return false;
@@ -216,7 +216,7 @@ public class ConnectionManager {
 
                 // Rozłącz gracza
                 player.disconnect(Component.text(
-                        "UUID nie zgadza się z kontem! Potencjalny atak spoofing.",
+                        messages.get("connection.error.uuid_mismatch"),
                         NamedTextColor.RED
                 ));
                 return false;
@@ -252,7 +252,7 @@ public class ConnectionManager {
             if (logger.isErrorEnabled()) {
                 logger.error("Błąd podczas weryfikacji gracza: {}", player.getUsername(), e);
             }
-            disconnectWithError(player, "Wystąpił błąd weryfikacji bazy danych.");
+            disconnectWithError(player, messages.get("connection.error.database"));
             return false;
         }
     }
@@ -291,7 +291,7 @@ public class ConnectionManager {
                     settings.getPicoLimboServerName());
 
             player.disconnect(Component.text(
-                    "Serwer autoryzacji jest niedostępny. Spróbuj ponownie później.",
+                    messages.get("connection.error.auth_server"),
                     NamedTextColor.RED
             ));
             return null;
@@ -305,7 +305,7 @@ public class ConnectionManager {
             logger.error("Krytyczny błąd podczas próby transferu gracza na PicoLimbo: {}", player.getUsername(), e);
         }
 
-        disconnectWithError(player, "Wystąpił krytyczny błąd podczas łączenia z serwerem autoryzacji.");
+        disconnectWithError(player, messages.get("connection.error.auth_connect"));
         return false;
     }
 

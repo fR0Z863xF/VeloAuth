@@ -683,8 +683,8 @@ public class CommandHandler {
                 RegisteredPlayer conflict = conflicts.get(i);
                 StringBuilder conflictInfo = new StringBuilder();
                 conflictInfo.append("§e").append(i + 1).append(". §f").append(conflict.getNickname()).append("\n");
-                conflictInfo.append(CONFLICT_PREFIX).append("UUID: §f").append(conflict.getUuid()).append("\n");
-                conflictInfo.append(CONFLICT_PREFIX).append("IP: §f").append(conflict.getIp()).append("\n");
+                conflictInfo.append(CONFLICT_PREFIX).append(messages.get("admin.conflicts.uuid", conflict.getUuid())).append("\n");
+                conflictInfo.append(CONFLICT_PREFIX).append(messages.get("admin.conflicts.ip", conflict.getIp())).append("\n");
                 
                 // Show conflict timestamp if available
                 long conflictTime = conflict.getConflictTimestamp();

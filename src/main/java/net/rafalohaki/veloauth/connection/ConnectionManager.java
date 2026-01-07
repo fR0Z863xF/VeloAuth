@@ -10,7 +10,6 @@ import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
-import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import net.rafalohaki.veloauth.util.StringConstants;
 import org.slf4j.Logger;
 import org.slf4j.Marker;
@@ -22,7 +21,6 @@ import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
@@ -260,139 +258,180 @@ public class ConnectionManager {
     }
     
     private boolean executeBackendTransfer(Player player, RegisteredServer targetServer, String serverName) {
-        // Early exit if player disconnected (prevents TimeoutException on stale connections)
+        if (!validatePlayerActive(player, serverName)) {
+            return false;
+        }
+
+        int attempts = retryAttempts.getOrDefault(player.getUniqueId(), 0);
+        if (!validateRetryLimit(player, attempts)) {
+            return false;
+        }
+
+        return performTransfer(player, targetServer, serverName, attempts);
+    }
+
+    private boolean validatePlayerActive(Player player, String serverName) {
         if (!player.isActive()) {
             if (logger.isDebugEnabled()) {
-                logger.debug("Gracz {} nie jest już aktywny - pomijam transfer do {}", 
+                logger.debug("Gracz {} nie jest już aktywny - pomijam transfer do {}",
                         player.getUsername(), serverName);
             }
             return false;
         }
-        
-        // Check retry limit before attempting
-        int attempts = retryAttempts.getOrDefault(player.getUniqueId(), 0);
+        return true;
+    }
+
+    private boolean validateRetryLimit(Player player, int attempts) {
         if (attempts >= MAX_RETRY_ATTEMPTS) {
             logger.warn("Gracz {} przekroczył limit prób transferu ({}) - przerywam",
                     player.getUsername(), MAX_RETRY_ATTEMPTS);
             retryAttempts.remove(player.getUniqueId());
-            player.sendMessage(Component.text(
-                    messages.get(CONNECTION_ERROR_GAME_SERVER),
-                    NamedTextColor.RED
-            ));
+            sendErrorMessage(player);
             return false;
         }
-        
+        return true;
+    }
+
+    private boolean performTransfer(Player player, RegisteredServer targetServer, String serverName, int attempts) {
         try {
-            // Final check before blocking operation
             if (!player.isActive()) {
                 logger.debug("Gracz {} rozłączył się przed rozpoczęciem transferu", player.getUsername());
                 return false;
             }
-            
-            // Wykonaj transfer i zbierz wynik, aby logować przyczynę niepowodzenia
+
             var result = player.createConnectionRequest(targetServer)
                     .connect()
                     .orTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    .join(); // Czekaj na zakończenie transferu
+                    .join();
 
-            if (result.isSuccessful()) {
-                // Reset retry counter on success
-                retryAttempts.remove(player.getUniqueId());
-                timeoutRetryScheduled.remove(player.getUniqueId());
-                if (logger.isDebugEnabled()) {
-                    logger.debug(messages.get("player.transfer.backend.success", player.getUsername(), serverName));
-                }
-                return true;
-            } else {
-                // Szczegółowe logowanie powodu niepowodzenia
-                if (logger.isWarnEnabled()) {
-                    logger.warn("Failed to transfer player {} to server {}: {}",
-                            player.getUsername(), serverName,
-                            result.getReasonComponent().orElse(createUnknownErrorComponent()));
-                }
-
-                // Fallback: jeśli nie jesteśmy już na PicoLimbo, spróbuj przenieść gracza na PicoLimbo a następnie ponowić próbę
-                RegisteredServer picoLimbo = validateAndGetPicoLimboServer(player);
-                if (picoLimbo != null && !isPlayerOnPicoLimbo(player)) {
-                    // Increment retry counter
-                    retryAttempts.put(player.getUniqueId(), attempts + 1);
-                    
-                    if (logger.isInfoEnabled()) {
-                        logger.info("Attempting fallback for player {} (attempt {}/{}): send to PicoLimbo then retry backend {}",
-                                player.getUsername(), attempts + 1, MAX_RETRY_ATTEMPTS, serverName);
-                    }
-
-                    // Asynchroniczny transfer na PicoLimbo; po udanym połączeniu zaplanuj retry do backend
-                    player.createConnectionRequest(picoLimbo)
-                            .connect()
-                            .orTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                            .whenComplete((limboResult, ex) -> {
-                                if (ex != null || limboResult == null || !limboResult.isSuccessful()) {
-                                    logger.warn("Fallback to PicoLimbo for {} failed: {}",
-                                            player.getUsername(), ex != null ? ex.getMessage() : (limboResult == null ? "null result" : limboResult.getReasonComponent().map(Component::toString).orElse("unknown")));
-                                    player.sendMessage(Component.text(messages.get(CONNECTION_ERROR_GAME_SERVER), NamedTextColor.RED));
-                                    return;
-                                }
-
-                                // Poczekaj krótko, aby limbo miał czas na zainicjowanie sesji, następnie spróbuj ponownie połączenia do docelowego backendu
-                                plugin.getServer().getScheduler().buildTask(plugin, () -> {
-                                    try {
-                                        var retry = player.createConnectionRequest(targetServer)
-                                                .connect()
-                                                .orTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                                                .join();
-                                        if (!retry.isSuccessful()) {
-                                            logger.warn("Retry to connect {} to {} after PicoLimbo failed: {}",
-                                                    player.getUsername(), serverName, retry.getReasonComponent().orElse(createUnknownErrorComponent()));
-                                            player.sendMessage(Component.text(messages.get(CONNECTION_ERROR_GAME_SERVER), NamedTextColor.RED));
-                                        }
-                                    } catch (Exception retryEx) {
-                                        logger.error("Error while retrying backend transfer for {}: {}",
-                                                player.getUsername(), retryEx.getMessage(), retryEx);
-                                        player.sendMessage(Component.text(messages.get(CONNECTION_ERROR_GAME_SERVER), NamedTextColor.RED));
-                                    }
-                                }).delay(300, TimeUnit.MILLISECONDS).schedule();
-                            });
-
-                    // Informujemy wywołującego, że podjęto działania zapasowe (transfer do PicoLimbo)
-                    return true;
-                }
-
-                // Jeśli fallback niedostępny lub jesteśmy już na PicoLimbo, przekazujemy błąd graczowi
-                player.sendMessage(Component.text(
-                        messages.get(CONNECTION_ERROR_GAME_SERVER),
-                        NamedTextColor.RED
-                ));
-                return false;
-            }
+            return handleTransferResult(player, targetServer, serverName, attempts, result);
         } catch (CompletionException e) {
-            // Handle timeout specially - schedule single async retry with friendly message
-            if (e.getCause() instanceof TimeoutException) {
-                if (handleTimeoutRetry(player, targetServer, serverName, attempts)) {
-                    return true; // retry scheduled
-                }
-            }
-            
-            logger.error("Error transferring player {} to server {}: {}",
-                    player.getUsername(), serverName, e.getMessage());
-
-            player.sendMessage(Component.text(
-                    messages.get(CONNECTION_ERROR_GAME_SERVER),
-                    NamedTextColor.RED
-            ));
-            return false;
+            return handleCompletionException(player, targetServer, serverName, attempts, e);
         } catch (Exception e) {
-            if (logger.isErrorEnabled()) {
-                logger.error("Error transferring player {} to server {}: {}",
-                        player.getUsername(), serverName, e.getMessage(), e);
-            }
-
-            player.sendMessage(Component.text(
-                    messages.get(CONNECTION_ERROR_GAME_SERVER),
-                    NamedTextColor.RED
-            ));
+            logTransferError(player, serverName, e);
+            sendErrorMessage(player);
             return false;
         }
+    }
+
+    private boolean handleTransferResult(Player player, RegisteredServer targetServer, String serverName,
+                                        int attempts, com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result result) {
+        if (result.isSuccessful()) {
+            return handleSuccessfulTransfer(player, serverName);
+        }
+        return handleFailedTransfer(player, targetServer, serverName, attempts, result);
+    }
+
+    private boolean handleSuccessfulTransfer(Player player, String serverName) {
+        retryAttempts.remove(player.getUniqueId());
+        timeoutRetryScheduled.remove(player.getUniqueId());
+        if (logger.isDebugEnabled()) {
+            logger.debug(messages.get("player.transfer.backend.success", player.getUsername(), serverName));
+        }
+        return true;
+    }
+
+    private boolean handleFailedTransfer(Player player, RegisteredServer targetServer, String serverName,
+                                        int attempts, com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result result) {
+        if (logger.isWarnEnabled()) {
+            logger.warn("Failed to transfer player {} to server {}: {}",
+                    player.getUsername(), serverName,
+                    result.getReasonComponent().orElse(createUnknownErrorComponent()));
+        }
+
+        if (attemptPicoLimboFallback(player, targetServer, serverName, attempts)) {
+            return true;
+        }
+
+        sendErrorMessage(player);
+        return false;
+    }
+
+    private boolean attemptPicoLimboFallback(Player player, RegisteredServer targetServer, String serverName, int attempts) {
+        RegisteredServer picoLimbo = validateAndGetPicoLimboServer(player);
+        if (picoLimbo == null || isPlayerOnPicoLimbo(player)) {
+            return false;
+        }
+
+        retryAttempts.put(player.getUniqueId(), attempts + 1);
+        if (logger.isInfoEnabled()) {
+            logger.info("Attempting fallback for player {} (attempt {}/{}): send to PicoLimbo then retry backend {}",
+                    player.getUsername(), attempts + 1, MAX_RETRY_ATTEMPTS, serverName);
+        }
+
+        schedulePicoLimboFallback(player, picoLimbo, targetServer, serverName);
+        return true;
+    }
+
+    private void schedulePicoLimboFallback(Player player, RegisteredServer picoLimbo,
+                                           RegisteredServer targetServer, String serverName) {
+        player.createConnectionRequest(picoLimbo)
+                .connect()
+                .orTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .whenComplete((limboResult, ex) ->
+                        handlePicoLimboFallbackResult(player, targetServer, serverName, limboResult, ex));
+    }
+
+    private void handlePicoLimboFallbackResult(Player player, RegisteredServer targetServer, String serverName,
+                                               com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result limboResult, Throwable ex) {
+        if (ex != null || limboResult == null || !limboResult.isSuccessful()) {
+            logFallbackFailure(player, limboResult, ex);
+            sendErrorMessage(player);
+            return;
+        }
+        scheduleBackendRetryAfterLimbo(player, targetServer, serverName);
+    }
+
+    private void logFallbackFailure(Player player,
+                                   com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result limboResult, Throwable ex) {
+        String reason = ex != null ? ex.getMessage() :
+                (limboResult == null ? "null result" : limboResult.getReasonComponent().map(Component::toString).orElse("unknown"));
+        logger.warn("Fallback to PicoLimbo for {} failed: {}", player.getUsername(), reason);
+    }
+
+    private void scheduleBackendRetryAfterLimbo(Player player, RegisteredServer targetServer, String serverName) {
+        plugin.getServer().getScheduler().buildTask(plugin, () ->
+                executeBackendRetryAfterLimbo(player, targetServer, serverName)
+        ).delay(300, TimeUnit.MILLISECONDS).schedule();
+    }
+
+    private void executeBackendRetryAfterLimbo(Player player, RegisteredServer targetServer, String serverName) {
+        try {
+            var retry = player.createConnectionRequest(targetServer)
+                    .connect()
+                    .orTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .join();
+            if (!retry.isSuccessful()) {
+                logger.warn("Retry to connect {} to {} after PicoLimbo failed: {}",
+                        player.getUsername(), serverName, retry.getReasonComponent().orElse(createUnknownErrorComponent()));
+                sendErrorMessage(player);
+            }
+        } catch (Exception retryEx) {
+            logger.error("Error while retrying backend transfer for {}: {}",
+                    player.getUsername(), retryEx.getMessage(), retryEx);
+            sendErrorMessage(player);
+        }
+    }
+
+    private boolean handleCompletionException(Player player, RegisteredServer targetServer,
+                                             String serverName, int attempts, CompletionException e) {
+        if (e.getCause() instanceof TimeoutException && handleTimeoutRetry(player, targetServer, serverName, attempts)) {
+            return true;
+        }
+        logger.error("Error transferring player {} to server {}: {}", player.getUsername(), serverName, e.getMessage());
+        sendErrorMessage(player);
+        return false;
+    }
+
+    private void logTransferError(Player player, String serverName, Exception e) {
+        if (logger.isErrorEnabled()) {
+            logger.error("Error transferring player {} to server {}: {}",
+                    player.getUsername(), serverName, e.getMessage(), e);
+        }
+    }
+
+    private void sendErrorMessage(Player player) {
+        player.sendMessage(Component.text(messages.get(CONNECTION_ERROR_GAME_SERVER), NamedTextColor.RED));
     }
 
     /**
@@ -400,71 +439,69 @@ public class ConnectionManager {
      * Shows friendly message to player instead of error stack trace.
      */
     private boolean handleTimeoutRetry(Player player, RegisteredServer targetServer, String serverName, int attempts) {
-        if (!player.isActive()) {
-            return false;
-        }
-
-        // Prevent multiple concurrent retries for same player
-        if (timeoutRetryScheduled.putIfAbsent(player.getUniqueId(), Boolean.TRUE) != null) {
-            return false;
-        }
-
-        if (attempts >= MAX_RETRY_ATTEMPTS) {
-            timeoutRetryScheduled.remove(player.getUniqueId());
+        if (!validateTimeoutRetryConditions(player, attempts)) {
             return false;
         }
 
         retryAttempts.put(player.getUniqueId(), attempts + 1);
+        player.sendMessage(Component.text(messages.get("connection.retry"), NamedTextColor.YELLOW));
 
-        // Friendly message instead of error
-        player.sendMessage(Component.text(
-                messages.get("connection.retry"),
-                NamedTextColor.YELLOW
-        ));
-
-        plugin.getServer().getScheduler().buildTask(plugin, () -> {
-            try {
-                player.createConnectionRequest(targetServer)
-                        .connect()
-                        .orTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .whenComplete((result, ex) -> {
-                            timeoutRetryScheduled.remove(player.getUniqueId());
-
-                            if (ex != null) {
-                                logger.warn("Retry after timeout failed for {} -> {}: {}",
-                                        player.getUsername(), serverName, ex.getMessage());
-                                player.sendMessage(Component.text(
-                                        messages.get(CONNECTION_ERROR_GAME_SERVER),
-                                        NamedTextColor.RED
-                                ));
-                                return;
-                            }
-
-                            if (result != null && result.isSuccessful()) {
-                                retryAttempts.remove(player.getUniqueId());
-                                if (logger.isDebugEnabled()) {
-                                    logger.debug("Retry after timeout succeeded for {} -> {}", 
-                                            player.getUsername(), serverName);
-                                }
-                            } else {
-                                logger.warn("Retry after timeout not successful for {} -> {}: {}",
-                                        player.getUsername(), serverName,
-                                        result != null ? result.getReasonComponent()
-                                                .orElse(createUnknownErrorComponent()) : createUnknownErrorComponent());
-                                player.sendMessage(Component.text(
-                                        messages.get(CONNECTION_ERROR_GAME_SERVER),
-                                        NamedTextColor.RED
-                                ));
-                            }
-                        });
-            } catch (Exception retryEx) {
-                timeoutRetryScheduled.remove(player.getUniqueId());
-                logger.error("Error scheduling retry after timeout for {}: {}", 
-                        player.getUsername(), retryEx.getMessage());
-            }
-        }).delay(400, TimeUnit.MILLISECONDS).schedule();
-
+        scheduleTimeoutRetry(player, targetServer, serverName);
         return true;
+    }
+
+    private boolean validateTimeoutRetryConditions(Player player, int attempts) {
+        if (!player.isActive()) {
+            return false;
+        }
+        if (timeoutRetryScheduled.putIfAbsent(player.getUniqueId(), Boolean.TRUE) != null) {
+            return false;
+        }
+        if (attempts >= MAX_RETRY_ATTEMPTS) {
+            timeoutRetryScheduled.remove(player.getUniqueId());
+            return false;
+        }
+        return true;
+    }
+
+    private void scheduleTimeoutRetry(Player player, RegisteredServer targetServer, String serverName) {
+        plugin.getServer().getScheduler().buildTask(plugin, () ->
+            executeTimeoutRetry(player, targetServer, serverName)
+        ).delay(400, TimeUnit.MILLISECONDS).schedule();
+    }
+
+    private void executeTimeoutRetry(Player player, RegisteredServer targetServer, String serverName) {
+        try {
+            player.createConnectionRequest(targetServer)
+                    .connect()
+                    .orTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .whenComplete((result, ex) -> handleTimeoutRetryResult(player, serverName, result, ex));
+        } catch (Exception retryEx) {
+            timeoutRetryScheduled.remove(player.getUniqueId());
+            logger.error("Error scheduling retry after timeout for {}: {}", player.getUsername(), retryEx.getMessage());
+        }
+    }
+
+    private void handleTimeoutRetryResult(Player player, String serverName,
+                                         com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result result, Throwable ex) {
+        timeoutRetryScheduled.remove(player.getUniqueId());
+
+        if (ex != null) {
+            logger.warn("Retry after timeout failed for {} -> {}: {}", player.getUsername(), serverName, ex.getMessage());
+            sendErrorMessage(player);
+            return;
+        }
+
+        if (result != null && result.isSuccessful()) {
+            retryAttempts.remove(player.getUniqueId());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Retry after timeout succeeded for {} -> {}", player.getUsername(), serverName);
+            }
+        } else {
+            Component reason = result != null ? result.getReasonComponent().orElse(createUnknownErrorComponent()) : createUnknownErrorComponent();
+            logger.warn("Retry after timeout not successful for {} -> {}: {}", player.getUsername(), serverName, reason);
+            sendErrorMessage(player);
+        }
     }
 
     /**

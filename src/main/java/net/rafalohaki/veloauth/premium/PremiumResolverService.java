@@ -92,7 +92,6 @@ public class PremiumResolverService {
      * @param trimmed Nazwa gracza
      * @return PremiumResolution lub null jeśli żaden resolver nie włączony
      */
-    @SuppressWarnings("java:S3776") // Cognitive Complexity - parallel resolver logic
     private PremiumResolution tryApiResolvers(String trimmed) {
         List<PremiumResolver> enabledResolvers = resolvers.stream()
                 .filter(PremiumResolver::enabled)
@@ -102,79 +101,110 @@ public class PremiumResolverService {
             return null;
         }
 
-        // Atomic reference for first premium result (wins immediately)
+        ResolverResults results = executeResolversInParallel(enabledResolvers, trimmed);
+        return selectBestResult(results, trimmed);
+    }
+
+    private ResolverResults executeResolversInParallel(List<PremiumResolver> enabledResolvers, String trimmed) {
         AtomicReference<PremiumResolution> premiumResult = new AtomicReference<>();
         AtomicReference<PremiumResolution> offlineCandidate = new AtomicReference<>();
 
-        // Launch all resolvers in parallel
         List<CompletableFuture<PremiumResolution>> futures = enabledResolvers.stream()
-                .map(resolver -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        PremiumResolution rawResolution = resolver.resolve(trimmed);
-                        PremiumResolution resolution = normalizeResolution(resolver, rawResolution, trimmed);
-
-                        // If premium found, set it immediately
-                        if (resolution.isPremium()) {
-                            premiumResult.compareAndSet(null, resolution);
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("[PARALLEL] {} returned PREMIUM for {}", resolver.id(), trimmed);
-                            }
-                        } else if (resolution.isOffline()) {
-                            offlineCandidate.compareAndSet(null, resolution);
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("[PARALLEL] {} returned OFFLINE for {}", resolver.id(), trimmed);
-                            }
-                        } else if (logger.isDebugEnabled()) {
-                            logger.debug("[PARALLEL] {} returned UNKNOWN for {}: {}", 
-                                    resolver.id(), trimmed, resolution.message());
-                        }
-
-                        return resolution;
-                    } catch (Exception e) { // NOSONAR - catch-all for API resilience
-                        if (logger.isWarnEnabled()) {
-                            logger.warn("[PARALLEL] {} failed for {}: {}", resolver.id(), trimmed, e.getMessage());
-                        }
-                        return PremiumResolution.unknown(resolver.id(), e.getMessage());
-                    }
-                }, net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider.getVirtualExecutor()))
+                .map(resolver -> createResolverFuture(resolver, trimmed, premiumResult, offlineCandidate))
                 .toList();
 
-        // Wait for all with timeout (max 5 seconds total)
+        awaitResolverFutures(futures);
+        return new ResolverResults(premiumResult.get(), offlineCandidate.get());
+    }
+
+    private CompletableFuture<PremiumResolution> createResolverFuture(
+            PremiumResolver resolver, String trimmed,
+            AtomicReference<PremiumResolution> premiumResult,
+            AtomicReference<PremiumResolution> offlineCandidate) {
+        return CompletableFuture.supplyAsync(
+                () -> executeResolver(resolver, trimmed, premiumResult, offlineCandidate),
+                net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider.getVirtualExecutor()
+        );
+    }
+
+    private PremiumResolution executeResolver(
+            PremiumResolver resolver, String trimmed,
+            AtomicReference<PremiumResolution> premiumResult,
+            AtomicReference<PremiumResolution> offlineCandidate) {
+        try {
+            PremiumResolution rawResolution = resolver.resolve(trimmed);
+            PremiumResolution resolution = normalizeResolution(resolver, rawResolution, trimmed);
+            categorizeResolution(resolver, resolution, trimmed, premiumResult, offlineCandidate);
+            return resolution;
+        } catch (Exception e) {
+            logResolverFailure(resolver, trimmed, e);
+            return PremiumResolution.unknown(resolver.id(), e.getMessage());
+        }
+    }
+
+    private void categorizeResolution(
+            PremiumResolver resolver, PremiumResolution resolution, String trimmed,
+            AtomicReference<PremiumResolution> premiumResult,
+            AtomicReference<PremiumResolution> offlineCandidate) {
+        if (resolution.isPremium()) {
+            premiumResult.compareAndSet(null, resolution);
+            logResolutionResult(resolver, trimmed, "PREMIUM");
+        } else if (resolution.isOffline()) {
+            offlineCandidate.compareAndSet(null, resolution);
+            logResolutionResult(resolver, trimmed, "OFFLINE");
+        } else if (logger.isDebugEnabled()) {
+            logger.debug("[PARALLEL] {} returned UNKNOWN for {}: {}", resolver.id(), trimmed, resolution.message());
+        }
+    }
+
+    private void logResolutionResult(PremiumResolver resolver, String trimmed, String status) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("[PARALLEL] {} returned {} for {}", resolver.id(), status, trimmed);
+        }
+    }
+
+    private void logResolverFailure(PremiumResolver resolver, String trimmed, Exception e) {
+        if (logger.isWarnEnabled()) {
+            logger.warn("[PARALLEL] {} failed for {}: {}", resolver.id(), trimmed, e.getMessage());
+        }
+    }
+
+    private void awaitResolverFutures(List<CompletableFuture<PremiumResolution>> futures) {
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                     .orTimeout(5, TimeUnit.SECONDS)
-                    .exceptionally(ex -> null) // Ignore timeout, we'll use whatever we have
+                    .exceptionally(ex -> null)
                     .join();
-        } catch (Exception e) { // NOSONAR - catch-all for timeout handling
+        } catch (Exception e) {
             if (logger.isDebugEnabled()) {
                 logger.debug("[PARALLEL] Timeout or error waiting for resolvers: {}", e.getMessage());
             }
         }
+    }
 
-        // Check results: Premium wins, otherwise use offline candidate
-        PremiumResolution premium = premiumResult.get();
-        if (premium != null) {
-            savePremiumToCache(premium, trimmed);
+    private PremiumResolution selectBestResult(ResolverResults results, String trimmed) {
+        if (results.premium() != null) {
+            savePremiumToCache(results.premium(), trimmed);
             if (logger.isInfoEnabled()) {
-                logger.info("[PARALLEL] Premium confirmed for {} from {}", trimmed, premium.source());
+                logger.info("[PARALLEL] Premium confirmed for {} from {}", trimmed, results.premium().source());
             }
-            return premium;
+            return results.premium();
         }
 
-        PremiumResolution offline = offlineCandidate.get();
-        if (offline != null) {
+        if (results.offline() != null) {
             if (logger.isDebugEnabled()) {
                 logger.debug("[PARALLEL] All resolvers returned offline for {}", trimmed);
             }
-            return offline;
+            return results.offline();
         }
 
-        // All resolvers returned unknown
         if (logger.isWarnEnabled()) {
             logger.warn("[PARALLEL] All resolvers returned unknown for {} - possible API issues", trimmed);
         }
         return PremiumResolution.unknown(RESOLVER_SERVICE, "all resolvers failed");
     }
+
+    private record ResolverResults(PremiumResolution premium, PremiumResolution offline) {}
 
     /**
      * Saves premium resolution to database cache.

@@ -3,7 +3,6 @@ package net.rafalohaki.veloauth.listener;
 import com.velocitypowered.api.proxy.Player;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import net.rafalohaki.veloauth.VeloAuth;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.cache.AuthCache.PremiumCacheEntry;
 import net.rafalohaki.veloauth.database.DatabaseManager;

@@ -451,16 +451,12 @@ public class DatabaseManager {
 
     private DbResult<RegisteredPlayer> performPlayerLookup(String normalizedNickname, String originalNickname, boolean runtimeDetection) {
         DbResult<RegisteredPlayer> cacheResult = checkCacheSafe(normalizedNickname);
-        if (cacheResult.isDatabaseError() || cacheResult.getValue() != null) {
-            if (runtimeDetection && cacheResult.getValue() != null && logger.isDebugEnabled()) {
-                logger.debug(CACHE_MARKER, "Runtime detection - cache HIT: {}", normalizedNickname);
-            }
+        
+        if (isCacheResultUsable(cacheResult, normalizedNickname, runtimeDetection)) {
             return cacheResult;
         }
 
-        if (runtimeDetection && logger.isDebugEnabled()) {
-            logger.debug(CACHE_MARKER, "Runtime detection - cache MISS: {}", normalizedNickname);
-        }
+        logCacheMiss(normalizedNickname, runtimeDetection);
 
         DbResult<Void> connectionResult = validateDatabaseConnection();
         if (connectionResult.isDatabaseError()) {
@@ -468,6 +464,22 @@ public class DatabaseManager {
         }
 
         return queryAndCachePlayer(normalizedNickname, originalNickname, runtimeDetection);
+    }
+
+    private boolean isCacheResultUsable(DbResult<RegisteredPlayer> cacheResult, String normalizedNickname, boolean runtimeDetection) {
+        if (cacheResult.isDatabaseError() || cacheResult.getValue() != null) {
+            if (runtimeDetection && cacheResult.getValue() != null && logger.isDebugEnabled()) {
+                logger.debug(CACHE_MARKER, "Runtime detection - cache HIT: {}", normalizedNickname);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private void logCacheMiss(String normalizedNickname, boolean runtimeDetection) {
+        if (runtimeDetection && logger.isDebugEnabled()) {
+            logger.debug(CACHE_MARKER, "Runtime detection - cache MISS: {}", normalizedNickname);
+        }
     }
 
     private DbResult<RegisteredPlayer> queryAndCachePlayer(String normalizedNickname, String originalNickname, boolean runtimeDetection) {
@@ -601,32 +613,51 @@ public class DatabaseManager {
             return;
         }
 
-        try {
-            net.rafalohaki.veloauth.cache.AuthCache authCache = authCacheRef.get();
-            if (authCache == null) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug(DB_MARKER, "AuthCache reference is null (GC collected) - skipping cache invalidation");
-                }
-                return;
-            }
+        net.rafalohaki.veloauth.cache.AuthCache authCache = authCacheRef.get();
+        if (authCache == null) {
+            logAuthCacheGarbageCollected();
+            return;
+        }
 
+        invalidatePlayerInAuthCache(player, authCache);
+    }
+
+    private void logAuthCacheGarbageCollected() {
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, "AuthCache reference is null (GC collected) - skipping cache invalidation");
+        }
+    }
+
+    private void invalidatePlayerInAuthCache(RegisteredPlayer player, net.rafalohaki.veloauth.cache.AuthCache authCache) {
+        try {
             UUID playerUuid = UUID.fromString(player.getUuid());
             authCache.invalidatePlayerData(playerUuid);
-
-            if (logger.isDebugEnabled()) {
-                logger.debug(DB_MARKER, "Notified AuthCache of update for player: {} (UUID: {})",
-                        player.getNickname(), playerUuid);
-            }
+            logCacheInvalidation(player, playerUuid);
         } catch (IllegalArgumentException e) {
-            if (logger.isWarnEnabled()) {
-                logger.warn(DB_MARKER, "Failed to parse UUID for cache invalidation: {} - {}",
-                        player.getUuid(), e.getMessage());
-            }
+            logInvalidUuidError(player, e);
         } catch (Exception e) {
-            if (logger.isErrorEnabled()) {
-                logger.error(DB_MARKER, "Error notifying AuthCache of player update: {}",
-                        player.getNickname(), e);
-            }
+            logCacheNotificationError(player, e);
+        }
+    }
+
+    private void logCacheInvalidation(RegisteredPlayer player, UUID playerUuid) {
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, "Notified AuthCache of update for player: {} (UUID: {})",
+                    player.getNickname(), playerUuid);
+        }
+    }
+
+    private void logInvalidUuidError(RegisteredPlayer player, IllegalArgumentException e) {
+        if (logger.isWarnEnabled()) {
+            logger.warn(DB_MARKER, "Failed to parse UUID for cache invalidation: {} - {}",
+                    player.getUuid(), e.getMessage());
+        }
+    }
+
+    private void logCacheNotificationError(RegisteredPlayer player, Exception e) {
+        if (logger.isErrorEnabled()) {
+            logger.error(DB_MARKER, "Error notifying AuthCache of player update: {}",
+                    player.getNickname(), e);
         }
     }
 

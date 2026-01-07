@@ -37,65 +37,85 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
     }
 
     @Override
-    @SuppressWarnings({"java:S3776", "java:S1141"}) // Cognitive Complexity 17 & nested try - retry logic requires complexity for reliability
     public PremiumResolution resolve(String username) {
         PremiumResolution pre = preResolve(username);
         if (pre != null) {
             return pre;
         }
-        
-        // Retry logic with exponential backoff (max 2 retries)
+        return executeWithRetries(username);
+    }
+
+    private PremiumResolution executeWithRetries(String username) {
         int maxRetries = 2;
-        int baseDelayMs = 100; // Start with 100ms
-        
+        int baseDelayMs = 100;
+
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                HttpJsonClient.HttpJsonResponse response = HttpJsonClient.get(getEndpoint(), username, timeoutMs);
-                PremiumResolution result = resolveFromResponse(response, username);
-                
-                // Only retry on unknown status (network errors, timeouts)
-                if (!result.isUnknown() || attempt == maxRetries) {
-                    if (attempt > 0 && logger.isDebugEnabled()) {
-                        logger.debug("[{}] Succeeded on retry {} for {}", getClass().getSimpleName(), attempt, username);
-                    }
-                    return result;
-                }
-                
-                // Exponential backoff before retry
-                int delayMs = baseDelayMs * (1 << attempt); // 100ms, 200ms, 400ms
-                if (logger.isDebugEnabled()) {
-                    logger.debug("[{}] Retry {} after {}ms for {}", getClass().getSimpleName(), attempt + 1, delayMs, username);
-                }
-                
-                try {
-                    Thread.sleep(delayMs);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return PremiumResolution.unknown(id(), "interrupted during retry");
-                }
-                
-            } catch (IOException ex) {
-                if (attempt == maxRetries) {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("[{}] IO error after {} retries for {}: {}", 
-                                getClass().getSimpleName(), maxRetries, username, ex.getMessage());
-                    }
-                    return PremiumResolution.unknown(id(), "io error after retries");
-                }
-                // Will retry on next iteration
-                if (logger.isDebugEnabled()) {
-                    logger.debug("[{}] IO error on attempt {} for {}, retrying...", 
-                            getClass().getSimpleName(), attempt, username);
-                }
-            } catch (Exception ex) { // NOSONAR - catch-all for API resilience
-                if (logger.isWarnEnabled()) {
-                    logger.warn("[{}] Unexpected error for {}", getClass().getSimpleName(), username, ex);
-                }
-                return PremiumResolution.unknown(id(), "unexpected");
+            PremiumResolution result = tryResolveAttempt(username, attempt, maxRetries, baseDelayMs);
+            if (result != null) {
+                return result;
             }
         }
-        
         return PremiumResolution.unknown(id(), "max retries exceeded");
+    }
+
+    private PremiumResolution tryResolveAttempt(String username, int attempt, int maxRetries, int baseDelayMs) {
+        try {
+            HttpJsonClient.HttpJsonResponse response = HttpJsonClient.get(getEndpoint(), username, timeoutMs);
+            PremiumResolution result = resolveFromResponse(response, username);
+
+            if (!result.isUnknown() || attempt == maxRetries) {
+                logSuccessOnRetry(username, attempt);
+                return result;
+            }
+
+            sleepBeforeRetry(username, attempt, baseDelayMs);
+            return null; // Signal to continue loop
+
+        } catch (IOException ex) {
+            return handleIOException(username, attempt, maxRetries, ex);
+        } catch (Exception ex) {
+            return handleUnexpectedException(username, ex);
+        }
+    }
+
+    private void logSuccessOnRetry(String username, int attempt) {
+        if (attempt > 0 && logger.isDebugEnabled()) {
+            logger.debug("[{}] Succeeded on retry {} for {}", getClass().getSimpleName(), attempt, username);
+        }
+    }
+
+    private void sleepBeforeRetry(String username, int attempt, int baseDelayMs) {
+        int delayMs = baseDelayMs * (1 << attempt);
+        if (logger.isDebugEnabled()) {
+            logger.debug("[{}] Retry {} after {}ms for {}", getClass().getSimpleName(), attempt + 1, delayMs, username);
+        }
+        try {
+            Thread.sleep(delayMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private PremiumResolution handleIOException(String username, int attempt, int maxRetries, IOException ex) {
+        if (attempt == maxRetries) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("[{}] IO error after {} retries for {}: {}",
+                        getClass().getSimpleName(), maxRetries, username, ex.getMessage());
+            }
+            return PremiumResolution.unknown(id(), "io error after retries");
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("[{}] IO error on attempt {} for {}, retrying...",
+                    getClass().getSimpleName(), attempt, username);
+        }
+        return null; // Signal to continue loop
+    }
+
+    private PremiumResolution handleUnexpectedException(String username, Exception ex) {
+        if (logger.isWarnEnabled()) {
+            logger.warn("[{}] Unexpected error for {}", getClass().getSimpleName(), username, ex);
+        }
+        return PremiumResolution.unknown(id(), "unexpected");
     }
 
     /**
@@ -178,6 +198,16 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
 
     private PremiumResolution resolveFromResponse(HttpJsonClient.HttpJsonResponse response, String username) {
         int code = response.statusCode();
+        
+        PremiumResolution statusResult = validateHttpStatus(code, username);
+        if (statusResult != null) {
+            return statusResult;
+        }
+        
+        return parseResponseBody(response.body(), username);
+    }
+
+    private PremiumResolution validateHttpStatus(int code, String username) {
         if (isNotFoundResponse(code)) {
             return PremiumResolution.offline(username, id(), "not found");
         }
@@ -187,22 +217,41 @@ abstract class AbstractPremiumResolver implements PremiumResolver {
             }
             return PremiumResolution.unknown(id(), "http " + code);
         }
-        String body = response.body();
+        return null; // Status OK, continue processing
+    }
+
+    private PremiumResolution parseResponseBody(String body, String username) {
         String uuidStr = extractUuidField(body);
         String canonical = extractUsernameField(body);
+        
         if (uuidStr == null || canonical == null) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("[{}] Missing fields for {}", getClass().getSimpleName(), username);
-            }
-            return PremiumResolution.unknown(id(), "missing fields");
+            return logAndReturnMissingFields(username);
         }
+        
+        return validateAndCreateResolution(uuidStr, canonical, username);
+    }
+
+    private PremiumResolution logAndReturnMissingFields(String username) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("[{}] Missing fields for {}", getClass().getSimpleName(), username);
+        }
+        return PremiumResolution.unknown(id(), "missing fields");
+    }
+
+    private PremiumResolution validateAndCreateResolution(String uuidStr, String canonical, String username) {
         UUID uuid = parseUuid(uuidStr);
-        if (uuid == null || (uuid.getMostSignificantBits() == 0L && uuid.getLeastSignificantBits() == 0L)) {
+        
+        if (isInvalidUuid(uuid)) {
             if (logger.isDebugEnabled()) {
                 logger.debug("[{}] Invalid uuid {} for {}", getClass().getSimpleName(), uuidStr, username);
             }
             return PremiumResolution.unknown(id(), "uuid parse error");
         }
+        
         return PremiumResolution.premium(uuid, canonical, id());
+    }
+
+    private boolean isInvalidUuid(UUID uuid) {
+        return uuid == null || (uuid.getMostSignificantBits() == 0L && uuid.getLeastSignificantBits() == 0L);
     }
 }

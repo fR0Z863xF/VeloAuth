@@ -5,7 +5,6 @@ import com.velocitypowered.api.proxy.Player;
 import net.rafalohaki.veloauth.command.ValidationUtils;
 import net.rafalohaki.veloauth.database.DatabaseManager.DbResult;
 import net.rafalohaki.veloauth.i18n.Messages;
-import net.rafalohaki.veloauth.i18n.SimpleMessages;
 import org.slf4j.Logger;
 import org.slf4j.Marker;
 import org.slf4j.MarkerFactory;

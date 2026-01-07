@@ -130,33 +130,52 @@ public final class VirtualThreadExecutorProvider {
         }
 
         try {
-            LOGGER.info("Initiating graceful shutdown of Virtual Thread executor...");
-            VIRTUAL_EXECUTOR.shutdown();
-
-            if (VIRTUAL_EXECUTOR.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
-                LOGGER.info("Virtual Thread executor shutdown completed successfully");
-            } else {
-                if (LOGGER.isWarnEnabled()) {
-                    LOGGER.warn("Executor did not terminate within 10 seconds, forcing shutdown...");
-                }
-                java.util.List<Runnable> droppedTasks = VIRTUAL_EXECUTOR.shutdownNow();
-                if (LOGGER.isWarnEnabled()) {
-                    LOGGER.warn("Forced shutdown - {} tasks were dropped", droppedTasks.size());
-                }
-
-                // Final termination check after forced shutdown
-                if (!VIRTUAL_EXECUTOR.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) && LOGGER.isErrorEnabled()) {
-                    LOGGER.error("Executor did not terminate after forced shutdown");
-                }
-            }
+            executeGracefulShutdown();
         } catch (InterruptedException e) {
-            LOGGER.error("Shutdown interrupted", e);
-            VIRTUAL_EXECUTOR.shutdownNow();
-            Thread.currentThread().interrupt();
+            handleInterruptedException(e);
         } catch (SecurityException e) {
             if (LOGGER.isErrorEnabled()) {
                 LOGGER.error("Error during Virtual Thread executor shutdown", e);
             }
         }
+    }
+
+    private static void executeGracefulShutdown() throws InterruptedException {
+        LOGGER.info("Initiating graceful shutdown of Virtual Thread executor...");
+        VIRTUAL_EXECUTOR.shutdown();
+
+        if (VIRTUAL_EXECUTOR.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+            LOGGER.info("Virtual Thread executor shutdown completed successfully");
+        } else {
+            executeForceShutdown();
+        }
+    }
+
+    private static void executeForceShutdown() throws InterruptedException {
+        if (LOGGER.isWarnEnabled()) {
+            LOGGER.warn("Executor did not terminate within 10 seconds, forcing shutdown...");
+        }
+        
+        java.util.List<Runnable> droppedTasks = VIRTUAL_EXECUTOR.shutdownNow();
+        logDroppedTasks(droppedTasks);
+        waitForForcedTermination();
+    }
+
+    private static void logDroppedTasks(java.util.List<Runnable> droppedTasks) {
+        if (LOGGER.isWarnEnabled()) {
+            LOGGER.warn("Forced shutdown - {} tasks were dropped", droppedTasks.size());
+        }
+    }
+
+    private static void waitForForcedTermination() throws InterruptedException {
+        if (!VIRTUAL_EXECUTOR.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) && LOGGER.isErrorEnabled()) {
+            LOGGER.error("Executor did not terminate after forced shutdown");
+        }
+    }
+
+    private static void handleInterruptedException(InterruptedException e) {
+        LOGGER.error("Shutdown interrupted", e);
+        VIRTUAL_EXECUTOR.shutdownNow();
+        Thread.currentThread().interrupt();
     }
 }

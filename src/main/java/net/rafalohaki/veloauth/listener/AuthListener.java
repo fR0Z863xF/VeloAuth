@@ -30,7 +30,6 @@ import javax.inject.Inject;
 import java.net.InetAddress;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Listener eventów autoryzacji VeloAuth.
@@ -167,36 +166,49 @@ public class AuthListener {
     }
 
     private boolean validatePreLoginConditions(PreLoginEvent event, String username) {
-        // CRITICAL: Block connections until plugin is fully initialized
-        if (!plugin.isInitialized()) {
-            logger.warn(
-                    "🔒 STARTUP BLOCK: Player {} tried to connect before VeloAuth fully initialized - PreLogin block",
-                    username);
-            // Use fallback if messages not available
-            String msg = messages != null ? messages.get("system.starting") : "VeloAuth is starting. Please wait.";
-            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text(msg, NamedTextColor.RED)));
+        if (!validatePluginInitialized(event, username)) {
             return false;
         }
-        
-        // DEFENSE-IN-DEPTH: Verify handlers are initialized
+        if (!validateHandlerInitialized(event, username)) {
+            return false;
+        }
+        if (!validateUsername(event, username)) {
+            return false;
+        }
+        return !checkBruteForceBlocked(event, username);
+    }
+
+    private boolean validatePluginInitialized(PreLoginEvent event, String username) {
+        if (!plugin.isInitialized()) {
+            logger.warn("🔒 STARTUP BLOCK: Player {} tried to connect before VeloAuth fully initialized - PreLogin block", username);
+            String msg = messages != null ? messages.get("system.starting") : "VeloAuth is starting. Please wait.";
+            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text(msg, NamedTextColor.RED)));
+            return false;
+        }
+        return true;
+    }
+
+    private boolean validateHandlerInitialized(PreLoginEvent event, String username) {
         if (preLoginHandler == null) {
             logger.error("CRITICAL: PreLoginHandler is null during event processing for player {}", username);
             String msg = messages != null ? messages.get("system.init_error") : "System initialization error.";
-            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text(msg, NamedTextColor.RED)));
+            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text(msg, NamedTextColor.RED)));
             return false;
         }
+        return true;
+    }
 
-        // WALIDACJA USERNAME - delegate to PreLoginHandler
+    private boolean validateUsername(PreLoginEvent event, String username) {
         if (!preLoginHandler.isValidUsername(username)) {
             logger.warn(SECURITY_MARKER, "[USERNAME VALIDATION FAILED] {} - invalid format", username);
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
                     Component.text(messages.get("validation.username.invalid"), NamedTextColor.RED)));
             return false;
         }
+        return true;
+    }
 
-        // Check brute force at IP level BEFORE any processing
+    private boolean checkBruteForceBlocked(PreLoginEvent event, String username) {
         InetAddress playerAddress = PlayerAddressUtils.getAddressFromPreLogin(event);
         if (playerAddress != null && preLoginHandler.isBruteForceBlocked(playerAddress)) {
             if (logger.isWarnEnabled()) {
@@ -204,9 +216,9 @@ public class AuthListener {
             }
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
                     Component.text(messages.get("security.brute_force.blocked"), NamedTextColor.RED)));
-            return false;
+            return true;
         }
-        return true;
+        return false;
     }
 
     private void handlePremiumDetection(PreLoginEvent event, String username) {
@@ -518,69 +530,68 @@ public class AuthListener {
             logger.debug("ServerConnectedEvent for player {} -> server {}",
                     player.getUsername(), serverName);
 
-            // Log transfer to backend (debug level to reduce spam)
             if (!serverName.equals(settings.getPicoLimboServerName())) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug(AUTH_MARKER, messages.get("player.connected.backend"),
-                            player.getUsername(), serverName);
-                }
-
-                // Send welcome message
-                player.sendMessage(Component.text(
-                        messages.get("general.welcome.full"),
-                        NamedTextColor.GREEN));
+                handleBackendConnection(player, serverName);
             } else {
-                // Player connected to PicoLimbo
-                if (logger.isDebugEnabled()) {
-                    logger.debug(AUTH_MARKER, "ServerConnected to PicoLimbo: {}", player.getUsername());
-                }
-                
-                // ✅ AUTO-TRANSFER: Jeśli gracz jest zweryfikowany w cache, automatycznie przenieś na backend
-                String playerIp = PlayerAddressUtils.getPlayerIp(player);
-                if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Gracz {} jest zweryfikowany w cache - uruchamiam auto-transfer na backend", 
-                                player.getUsername());
-                    }
-                    connectionManager.autoTransferFromPicoLimboToBackend(player);
-                    return; // Nie pokazuj instrukcji logowania - gracz jest już zweryfikowany
-                }
-
-                // Gracz nie jest zweryfikowany - pokaż instrukcje logowania
-                player.sendMessage(Component.text(
-                        messages.get("auth.header"),
-                        NamedTextColor.GOLD));
-
-                // Check registration status async to send appropriate prompt
-                databaseManager.findPlayerByNickname(player.getUsername())
-                    .thenAccept(dbResult -> {
-                        if (dbResult.isDatabaseError()) {
-                             player.sendMessage(Component.text(
-                                messages.get("auth.prompt.generic"),
-                                NamedTextColor.YELLOW));
-                             return;
-                        }
-                        
-                        RegisteredPlayer registeredPlayer = dbResult.getValue();
-                        if (registeredPlayer != null) {
-                            // Account exists -> Login
-                            player.sendMessage(Component.text(
-                                messages.get("auth.account_exists"),
-                                NamedTextColor.GREEN));
-                        } else {
-                            // No account -> Register
-                            player.sendMessage(Component.text(
-                                messages.get("auth.first_time"),
-                                NamedTextColor.AQUA));
-                        }
-                    })
-                    .exceptionally(e -> {
-                        logger.error("Error sending auth prompt for {}", player.getUsername(), e);
-                        return null;
-                    });
+                handlePicoLimboConnection(player);
             }
         } catch (Exception e) {
             logger.error("Error in ServerConnected", e);
+        }
+    }
+
+    private void handleBackendConnection(Player player, String serverName) {
+        if (logger.isDebugEnabled()) {
+            logger.debug(AUTH_MARKER, messages.get("player.connected.backend"),
+                    player.getUsername(), serverName);
+        }
+        player.sendMessage(Component.text(messages.get("general.welcome.full"), NamedTextColor.GREEN));
+    }
+
+    private void handlePicoLimboConnection(Player player) {
+        if (logger.isDebugEnabled()) {
+            logger.debug(AUTH_MARKER, "ServerConnected to PicoLimbo: {}", player.getUsername());
+        }
+
+        String playerIp = PlayerAddressUtils.getPlayerIp(player);
+        if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
+            triggerAutoTransfer(player);
+            return;
+        }
+
+        sendAuthInstructions(player);
+    }
+
+    private void triggerAutoTransfer(Player player) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("Gracz {} jest zweryfikowany w cache - uruchamiam auto-transfer na backend",
+                    player.getUsername());
+        }
+        connectionManager.autoTransferFromPicoLimboToBackend(player);
+    }
+
+    private void sendAuthInstructions(Player player) {
+        player.sendMessage(Component.text(messages.get("auth.header"), NamedTextColor.GOLD));
+
+        databaseManager.findPlayerByNickname(player.getUsername())
+                .thenAccept(dbResult -> sendAuthPrompt(player, dbResult))
+                .exceptionally(e -> {
+                    logger.error("Error sending auth prompt for {}", player.getUsername(), e);
+                    return null;
+                });
+    }
+
+    private void sendAuthPrompt(Player player, DbResult<RegisteredPlayer> dbResult) {
+        if (dbResult.isDatabaseError()) {
+            player.sendMessage(Component.text(messages.get("auth.prompt.generic"), NamedTextColor.YELLOW));
+            return;
+        }
+
+        RegisteredPlayer registeredPlayer = dbResult.getValue();
+        if (registeredPlayer != null) {
+            player.sendMessage(Component.text(messages.get("auth.account_exists"), NamedTextColor.GREEN));
+        } else {
+            player.sendMessage(Component.text(messages.get("auth.first_time"), NamedTextColor.AQUA));
         }
     }
 
@@ -669,36 +680,43 @@ public class AuthListener {
      */
     private boolean performUuidVerification(Player player, RegisteredPlayer dbPlayer) {
         if (dbPlayer == null) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Brak UUID w bazie dla gracza {}", player.getUsername());
-            }
+            logMissingDbPlayer(player);
             return false;
         }
 
-        UUID playerUuid = player.getUniqueId();
-        
-        // Check if player is in CONFLICT_MODE (Requirement 8.5)
         if (dbPlayer.getConflictMode()) {
-            logger.info(SECURITY_MARKER, 
-                "[CONFLICT_MODE ACTIVE] Player {} (UUID: {}) is in conflict resolution mode - " +
-                "allowing access despite potential UUID mismatch. Conflict timestamp: {}",
-                player.getUsername(), 
-                playerUuid,
-                dbPlayer.getConflictTimestamp() > 0 ? 
-                    java.time.Instant.ofEpochMilli(dbPlayer.getConflictTimestamp()) : "not set");
+            logConflictModeActive(player, dbPlayer);
             return true;
         }
 
-        // Check both UUID and PREMIUMUUID fields (Requirement 8.4)
-        UUID storedUuid = parseUuid(dbPlayer.getUuid());
-        UUID storedPremiumUuid = parseUuid(dbPlayer.getPremiumUuid());
+        return verifyUuidMatch(player, dbPlayer);
+    }
 
-        // Match against primary UUID
+    private void logMissingDbPlayer(Player player) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("Brak UUID w bazie dla gracza {}", player.getUsername());
+        }
+    }
+
+    private void logConflictModeActive(Player player, RegisteredPlayer dbPlayer) {
+        logger.info(SECURITY_MARKER,
+                "[CONFLICT_MODE ACTIVE] Player {} (UUID: {}) is in conflict resolution mode - " +
+                        "allowing access despite potential UUID mismatch. Conflict timestamp: {}",
+                player.getUsername(),
+                player.getUniqueId(),
+                dbPlayer.getConflictTimestamp() > 0 ?
+                        java.time.Instant.ofEpochMilli(dbPlayer.getConflictTimestamp()) : "not set");
+    }
+
+    private boolean verifyUuidMatch(Player player, RegisteredPlayer dbPlayer) {
+        UUID playerUuid = player.getUniqueId();
+        UUID storedUuid = net.rafalohaki.veloauth.util.UuidUtils.parseUuidSafely(dbPlayer.getUuid());
+        UUID storedPremiumUuid = net.rafalohaki.veloauth.util.UuidUtils.parseUuidSafely(dbPlayer.getPremiumUuid());
+
         if (storedUuid != null && playerUuid.equals(storedUuid)) {
             return true;
         }
 
-        // Match against PREMIUMUUID (for premium players who switched to offline)
         if (storedPremiumUuid != null && playerUuid.equals(storedPremiumUuid)) {
             if (logger.isDebugEnabled()) {
                 logger.debug("UUID matched against PREMIUMUUID for player {}", player.getUsername());
@@ -706,23 +724,8 @@ public class AuthListener {
             return true;
         }
 
-        // UUID mismatch detected
         handleUuidMismatch(player, playerUuid, storedUuid, storedPremiumUuid, dbPlayer);
         return false;
-    }
-
-    /**
-     * Safely parses UUID string, returning null if invalid.
-     */
-    private UUID parseUuid(String uuidString) {
-        if (uuidString == null || uuidString.isEmpty()) {
-            return null;
-        }
-        try {
-            return UUID.fromString(uuidString);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 
     /**

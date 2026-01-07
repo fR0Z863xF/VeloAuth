@@ -597,20 +597,23 @@ public class AuthListener {
         return true;
     }
 
+    /**
+     * Verifies cracked player UUID against database.
+     * Optimized: Removed double-join pattern for better performance on event threads.
+     */
     private boolean verifyCrackedPlayerUuid(Player player) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
+        try {
+            // Direct synchronous call - no need for CompletableFuture wrapper when we join() anyway
+            var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
 
-                if (dbResult.isDatabaseError()) {
-                    return handleDatabaseVerificationError(player, dbResult);
-                }
-
-                return performUuidVerification(player, dbResult.getValue());
-            } catch (Exception e) {
-                return handleAsyncVerificationError(player, e);
+            if (dbResult.isDatabaseError()) {
+                return handleDatabaseVerificationError(player, dbResult);
             }
-        }).join();
+
+            return performUuidVerification(player, dbResult.getValue());
+        } catch (Exception e) {
+            return handleAsyncVerificationError(player, e);
+        }
     }
 
     private boolean handleDatabaseVerificationError(Player player, DbResult<RegisteredPlayer> dbResult) {

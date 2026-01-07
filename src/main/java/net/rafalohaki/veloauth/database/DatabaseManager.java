@@ -4,7 +4,6 @@ import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.DaoManager;
 import com.j256.ormlite.jdbc.DataSourceConnectionSource;
 import com.j256.ormlite.jdbc.JdbcConnectionSource;
-import com.j256.ormlite.misc.TransactionManager;
 import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.support.DatabaseConnection;
 import com.j256.ormlite.table.TableUtils;
@@ -21,7 +20,6 @@ import java.sql.SQLException;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -267,49 +265,6 @@ public class DatabaseManager {
         connected = true;
         if (logger.isDebugEnabled()) {
             logger.debug(DB_MARKER, messages.get("database.manager.connected"), config.getStorageType());
-        }
-    }
-
-    /**
-     * Wykonuje operację w transakcji DB dla atomowości.
-     * Używa Virtual Threads dla wydajności I/O i ORMLite TransactionManager.
-     *
-     * @param operation Operacja do wykonania w transakcji
-     * @param <T>       Typ zwracany przez operację
-     * @return CompletableFuture z wynikiem operacji
-     */
-    public <T> CompletableFuture<T> executeInTransaction(Callable<T> operation) {
-        return CompletableFuture.supplyAsync(() -> {
-            validateConnectionSource();
-            return executeTransaction(operation);
-        }, dbExecutor);
-    }
-
-    private void validateConnectionSource() {
-        if (connectionSource == null) {
-            throw new IllegalStateException(DATABASE_NOT_CONNECTED);
-        }
-    }
-
-    private <T> T executeTransaction(Callable<T> operation) {
-        try {
-            TransactionManager transactionManager = new TransactionManager(connectionSource);
-            return transactionManager.callInTransaction(operation);
-        } catch (SQLException e) {
-            if (logger.isErrorEnabled()) {
-                logger.error(DB_MARKER, "Błąd SQL podczas transakcji", e);
-            }
-            throw new DataAccessException("SQL transaction failed", e);
-        } catch (IllegalStateException e) {
-            if (logger.isErrorEnabled()) {
-                logger.error(DB_MARKER, "Błąd stanu w transakcji DB", e);
-            }
-            throw new DataAccessException("Transaction state failed", e);
-        } catch (RuntimeException e) {
-            if (logger.isErrorEnabled()) {
-                logger.error(DB_MARKER, "Błąd wykonania w transakcji DB", e);
-            }
-            throw new DataAccessException("Transaction execution failed", e);
         }
     }
 

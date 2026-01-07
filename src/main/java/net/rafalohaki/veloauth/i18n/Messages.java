@@ -241,6 +241,7 @@ public class Messages {
         try {
             // Support both MessageFormat style ({0}, {1}) and lightweight '{}' style used in some translations.
             // If '{}' tokens are present but no numeric indices, convert '{}' -> {0}, {1}, ... for MessageFormat.
+            String formattedMessage = message;
             if (message.contains("{}") && !message.matches(".*\\{\\d+}.*")) {
                 StringBuilder sb = new StringBuilder();
                 int start = 0;
@@ -252,10 +253,10 @@ public class Messages {
                     start = pos + 2;
                 }
                 sb.append(message.substring(start));
-                message = sb.toString();
+                formattedMessage = sb.toString();
             }
 
-            return MessageFormat.format(message, args);
+            return MessageFormat.format(formattedMessage, args);
         } catch (IllegalArgumentException e) {
             logger.warn("Failed to format message '{}': {}", key, e.getMessage());
             return message;

@@ -376,7 +376,7 @@ public class VeloAuth {
         }
         long startTime = System.currentTimeMillis();
         
-        connectionManager = new ConnectionManager(this, databaseManager, authCache, settings, messages);
+        connectionManager = new ConnectionManager(this, authCache, settings, messages);
         
         logger.debug("✅ Connection manager initialized in {} ms", System.currentTimeMillis() - startTime);
     }

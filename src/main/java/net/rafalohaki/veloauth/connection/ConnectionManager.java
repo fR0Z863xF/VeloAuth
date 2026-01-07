@@ -7,13 +7,10 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.rafalohaki.veloauth.VeloAuth;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
-import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.util.StringConstants;
 import org.slf4j.Logger;
-import org.slf4j.Marker;
-import org.slf4j.MarkerFactory;
 
 import com.velocitypowered.api.scheduler.ScheduledTask;
 
@@ -39,7 +36,6 @@ import java.util.concurrent.locks.LockSupport;
  */
 public class ConnectionManager {
 
-    private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
     /** Timeout for server connection attempts - increased from 10s to 15s for slow/remote servers */
     private static final long CONNECT_TIMEOUT_SECONDS = 15;
     private static final String CONNECTION_ERROR_GAME_SERVER = "connection.error.game_server";
@@ -55,7 +51,6 @@ public class ConnectionManager {
     private final Map<UUID, ScheduledTask> pendingTransfers = new ConcurrentHashMap<>();
 
     private final VeloAuth plugin;
-    private final DatabaseManager databaseManager;
     private final AuthCache authCache;
     private final Settings settings;
     private final Logger logger;
@@ -65,15 +60,13 @@ public class ConnectionManager {
      * Tworzy nowy ConnectionManager.
      *
      * @param plugin          VeloAuth plugin instance
-     * @param databaseManager Manager bazy danych
      * @param authCache       Cache autoryzacji
      * @param settings        Ustawienia pluginu
      * @param messages        System wiadomości i18n
      */
-    public ConnectionManager(VeloAuth plugin, DatabaseManager databaseManager,
+    public ConnectionManager(VeloAuth plugin,
                              AuthCache authCache, Settings settings, Messages messages) {
         this.plugin = plugin;
-        this.databaseManager = databaseManager;
         this.authCache = authCache;
         this.settings = settings;
         this.logger = plugin.getLogger();

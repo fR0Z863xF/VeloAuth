@@ -117,7 +117,6 @@ class AuthenticationFlowIntegrationTest {
         
         connectionManager = new net.rafalohaki.veloauth.connection.ConnectionManager(
                 plugin,
-                databaseManager,
                 authCache,
                 settings,
                 messages

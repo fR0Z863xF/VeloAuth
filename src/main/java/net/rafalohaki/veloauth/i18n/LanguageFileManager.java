@@ -62,6 +62,8 @@ public final class LanguageFileManager {
         copyLanguageFileFromJar("messages_fr.properties");
         copyLanguageFileFromJar("messages_de.properties");
         copyLanguageFileFromJar("messages_fi.properties");
+        copyLanguageFileFromJar("messages_en.properties");
+        copyLanguageFileFromJar("messages_zh.properties");
     }
     
     /**

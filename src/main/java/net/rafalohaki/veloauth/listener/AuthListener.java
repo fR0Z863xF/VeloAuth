@@ -1,5 +1,6 @@
 package net.rafalohaki.veloauth.listener;
 
+import com.velocitypowered.api.event.ResultedEvent.ComponentResult;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
@@ -269,6 +270,15 @@ public class AuthListener {
         }
 
         if (premium) {
+            if (result.premiumUuid() != event.getUniqueId()) {
+                logger.warn(SECURITY_MARKER, 
+                    "[OFFLINE_PREMIUM_CONFLICT] Offline player trying to use premium nickname: {}", username);
+                
+                event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                    Component.text(messages.get("auth.offline_premium_conflict"), NamedTextColor.YELLOW)
+                ));
+                return;
+            }
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
         } else {
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());

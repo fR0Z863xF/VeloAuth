@@ -24,7 +24,7 @@ VeloAuth is a comprehensive authentication system for Velocity proxy that handle
 - 🔄 **Conflict Resolution** - Smart handling of premium/cracked nickname conflicts
 - 📊 **Admin Tools** - Complete conflict management with `/vauth conflicts`
 - 🗄️ **Multi-Database** - MySQL, PostgreSQL, H2, SQLite
-- 🌍 **8 Languages** - EN, PL, DE, FR, RU, TR, SI, FI
+- 🌍 **9 Languages** - EN, PL, DE, FR, RU, TR, SI, FI, ZH(SC)
 - 🔄 **LimboAuth Compatible** - 100% database compatibility (no migration needed)
 - 📢 **Discord Alerts** - Webhook notifications for security events
 - 🧵 **Virtual Threads** - Built on Java 21 for maximum performance

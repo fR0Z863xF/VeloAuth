@@ -66,7 +66,7 @@ public class Settings {
     private int preLoginRateLimitAttempts = 10; // PreLogin attempts per time window
     private int preLoginRateLimitMinutes = 1; // PreLogin rate limit time window
     private int sessionTimeoutMinutes = 60; // Session timeout in minutes
-    private boolean blockCommandsBeforeAuth = true; // Block commands before authentication
+    private boolean blockCommandsBeforeAuth = false; // Block commands before authentication
     // Debug settings
     private boolean debugEnabled = false; // Default to false for production
     // Language settings
@@ -220,7 +220,7 @@ public class Settings {
                   prelogin-ratelimit-attempts: 10 # PreLogin connection attempts per time window
                   prelogin-ratelimit-minutes: 1 # PreLogin rate limit time window in minutes
                   session-timeout-minutes: 60 # Session timeout in minutes (player must re-login after this time)
-                  block-commands-before-auth: true # Block command execution before authentication (except /login, /register)
+                  block-commands-before-auth: false # Block command execution before authentication (except /login, /register)
                 
                 # Premium account detection configuration
                 premium:

@@ -65,6 +65,7 @@ public class Settings {
     private int maxConcurrentSessions = 2; // Maximum concurrent sessions per player
     private int preLoginRateLimitAttempts = 10; // PreLogin attempts per time window
     private int preLoginRateLimitMinutes = 1; // PreLogin rate limit time window
+    private int sessionTimeoutMinutes = 60; // Session timeout in minutes
     // Debug settings
     private boolean debugEnabled = false; // Default to false for production
     // Language settings
@@ -217,6 +218,7 @@ public class Settings {
                   max-concurrent-sessions: 2 # Maximum concurrent sessions per player (prevents account sharing)
                   prelogin-ratelimit-attempts: 10 # PreLogin connection attempts per time window
                   prelogin-ratelimit-minutes: 1 # PreLogin rate limit time window in minutes
+                  session-timeout-minutes: 60 # Session max age in minutes
                 
                 # Premium account detection configuration
                 premium:
@@ -470,6 +472,7 @@ public class Settings {
             maxConcurrentSessions = getInt(security, "max-concurrent-sessions", maxConcurrentSessions);
             preLoginRateLimitAttempts = getInt(security, "prelogin-ratelimit-attempts", preLoginRateLimitAttempts);
             preLoginRateLimitMinutes = getInt(security, "prelogin-ratelimit-minutes", preLoginRateLimitMinutes);
+            sessionTimeoutMinutes = getInt(security, "session-timeout-minutes", sessionTimeoutMinutes);
         }
     }
 
@@ -904,6 +907,10 @@ public class Settings {
 
     public int getPreLoginRateLimitMinutes() {
         return preLoginRateLimitMinutes;
+    }
+
+    public int getSessionTimeoutMinutes() {
+        return sessionTimeoutMinutes;
     }
 
     public boolean isPremiumCheckEnabled() {

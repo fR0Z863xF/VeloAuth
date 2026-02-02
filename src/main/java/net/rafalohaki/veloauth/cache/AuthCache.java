@@ -753,10 +753,17 @@ public class AuthCache {
     }
 
     /**
-     * Sprawdza czy gracz ma aktywną sesję z weryfikacją nickname i IP.
+     * Sprawdza czy gracz ma aktywną sesję z weryfikacją nickname, IP i timeout.
      * Zapobiega session hijacking przez zmianę nicku lub IP.
+     * Automatycznie kończy sesję jeśli przekroczono timeout.
+     * 
+     * @param uuid UUID gracza
+     * @param nickname Nickname gracza
+     * @param currentIp Aktualny IP gracza
+     * @param sessionTimeoutMinutes Timeout sesji w minutach (z konfiguracji)
+     * @return true jeśli sesja jest aktywna i ważna
      */
-    public boolean hasActiveSession(UUID uuid, String nickname, String currentIp) {
+    public boolean hasActiveSession(UUID uuid, String nickname, String currentIp, int sessionTimeoutMinutes) {
         if (invalidSessionParams(uuid, nickname, currentIp)) {
             return false;
         }
@@ -770,8 +777,28 @@ public class AuthCache {
         if (isIpMismatch(session, currentIp, uuid)) {
             return false;
         }
+        // Check session timeout
+        if (!session.isActive(sessionTimeoutMinutes)) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Session timeout for player {} (UUID: {}) - last activity: {} minutes ago",
+                        nickname, uuid, (System.currentTimeMillis() - session.getLastActivityTime()) / 60000);
+            }
+            endSession(uuid);
+            return false;
+        }
         session.updateActivity();
         return true;
+    }
+
+    /**
+     * Sprawdza czy gracz ma aktywną sesję z weryfikacją nickname i IP.
+     * Zapobiega session hijacking przez zmianę nicku lub IP.
+     * @deprecated Use {@link #hasActiveSession(UUID, String, String, int)} with session timeout
+     */
+    @Deprecated
+    public boolean hasActiveSession(UUID uuid, String nickname, String currentIp) {
+        // Default to 60 minutes timeout for backward compatibility
+        return hasActiveSession(uuid, nickname, currentIp, 60);
     }
 
     private boolean invalidSessionParams(UUID uuid, String nickname, String currentIp) {

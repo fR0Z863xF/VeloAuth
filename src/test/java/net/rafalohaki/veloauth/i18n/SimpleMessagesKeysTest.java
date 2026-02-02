@@ -25,6 +25,7 @@ class SimpleMessagesKeysTest {
 
     private Properties englishProps;
     private Properties polishProps;
+    private Properties chineseProps;
 
     /**
      * All translation keys used by SimpleMessages class.
@@ -230,7 +231,18 @@ class SimpleMessagesKeysTest {
             "player.transfer.backend.attempt",
             // Security messages (additional)
             "security.session.hijack",
-            "security.session.ip.mismatch"
+            "security.session.ip.mismatch",
+            // New security features (v1.0.4+)
+            "auth.concurrent_session_limit",
+            "auth.rate_limit_prelogin",
+            "auth.password_changed_relogin",
+            // Premium player registration protection
+            "auth.premium_cannot_register",
+            "auth.premium_conflict_title",
+            "auth.premium_conflict_desc",
+            "auth.premium_conflict_solution",
+            // Offline player trying to use premium nickname
+            "auth.offline_premium_conflict"
     );
 
     /**
@@ -247,6 +259,7 @@ class SimpleMessagesKeysTest {
     void setUp() throws IOException {
         englishProps = loadProperties("messages_en.properties");
         polishProps = loadProperties("messages_pl.properties");
+        chineseProps = loadProperties("messages_zh.properties");
     }
 
     private Properties loadProperties(String filename) throws IOException {
@@ -285,6 +298,18 @@ class SimpleMessagesKeysTest {
     }
 
     @Test
+    void allRequiredKeys_existInChineseFile() {
+        StringBuilder missing = new StringBuilder();
+        for (String key : REQUIRED_KEYS) {
+            if (!chineseProps.containsKey(key)) {
+                missing.append("\n  - ").append(key);
+            }
+        }
+        assertTrue(missing.isEmpty(), 
+                "Missing keys in messages_zh.properties:" + missing);
+    }
+
+    @Test
     void englishAndPolish_haveConsistentKeys() {
         // Check for keys in English but not in Polish
         StringBuilder englishOnly = new StringBuilder();
@@ -314,18 +339,55 @@ class SimpleMessagesKeysTest {
     }
 
     @Test
+    void allLanguageFiles_haveConsistentKeys() {
+        // Check consistency across EN, PL, and ZH
+        StringBuilder inconsistencies = new StringBuilder();
+        
+        // Check EN vs ZH
+        for (String key : englishProps.stringPropertyNames()) {
+            if (!chineseProps.containsKey(key)) {
+                inconsistencies.append("\n  - EN has but ZH missing: ").append(key);
+            }
+        }
+        for (String key : chineseProps.stringPropertyNames()) {
+            if (!englishProps.containsKey(key)) {
+                inconsistencies.append("\n  - ZH has but EN missing: ").append(key);
+            }
+        }
+        
+        // Check PL vs ZH
+        for (String key : polishProps.stringPropertyNames()) {
+            if (!chineseProps.containsKey(key)) {
+                inconsistencies.append("\n  - PL has but ZH missing: ").append(key);
+            }
+        }
+        for (String key : chineseProps.stringPropertyNames()) {
+            if (!polishProps.containsKey(key)) {
+                inconsistencies.append("\n  - ZH has but PL missing: ").append(key);
+            }
+        }
+        
+        assertTrue(inconsistencies.isEmpty(), 
+                "Language files have inconsistent keys:" + inconsistencies);
+    }
+
+    @Test
     void allValues_areNotEmpty() {
         StringBuilder emptyValues = new StringBuilder();
         
         for (String key : REQUIRED_KEYS) {
             String enValue = englishProps.getProperty(key);
             String plValue = polishProps.getProperty(key);
+            String zhValue = chineseProps.getProperty(key);
             
             if (enValue != null && enValue.trim().isEmpty()) {
                 emptyValues.append("\n  - EN: ").append(key);
             }
             if (plValue != null && plValue.trim().isEmpty()) {
                 emptyValues.append("\n  - PL: ").append(key);
+            }
+            if (zhValue != null && zhValue.trim().isEmpty()) {
+                emptyValues.append("\n  - ZH: ").append(key);
             }
         }
         
@@ -334,7 +396,7 @@ class SimpleMessagesKeysTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"en", "pl"})
+    @ValueSource(strings = {"en", "pl", "zh"})
     void messagesClass_canLoadAllRequiredKeys(String language) {
         Messages messages = new Messages();
         messages.setLanguage(language);

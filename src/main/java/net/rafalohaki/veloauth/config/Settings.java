@@ -66,6 +66,7 @@ public class Settings {
     private int preLoginRateLimitAttempts = 10; // PreLogin attempts per time window
     private int preLoginRateLimitMinutes = 1; // PreLogin rate limit time window
     private int sessionTimeoutMinutes = 60; // Session timeout in minutes
+    private boolean blockCommandsBeforeAuth = true; // Block commands before authentication
     // Debug settings
     private boolean debugEnabled = false; // Default to false for production
     // Language settings
@@ -218,7 +219,8 @@ public class Settings {
                   max-concurrent-sessions: 2 # Maximum concurrent sessions per player (prevents account sharing)
                   prelogin-ratelimit-attempts: 10 # PreLogin connection attempts per time window
                   prelogin-ratelimit-minutes: 1 # PreLogin rate limit time window in minutes
-                  session-timeout-minutes: 60 # Session max age in minutes
+                  session-timeout-minutes: 60 # Session timeout in minutes (player must re-login after this time)
+                  block-commands-before-auth: true # Block command execution before authentication (except /login, /register)
                 
                 # Premium account detection configuration
                 premium:
@@ -473,6 +475,7 @@ public class Settings {
             preLoginRateLimitAttempts = getInt(security, "prelogin-ratelimit-attempts", preLoginRateLimitAttempts);
             preLoginRateLimitMinutes = getInt(security, "prelogin-ratelimit-minutes", preLoginRateLimitMinutes);
             sessionTimeoutMinutes = getInt(security, "session-timeout-minutes", sessionTimeoutMinutes);
+            blockCommandsBeforeAuth = getBoolean(security, "block-commands-before-auth", blockCommandsBeforeAuth);
         }
     }
 
@@ -911,6 +914,10 @@ public class Settings {
 
     public int getSessionTimeoutMinutes() {
         return sessionTimeoutMinutes;
+    }
+
+    public boolean isBlockCommandsBeforeAuth() {
+        return blockCommandsBeforeAuth;
     }
 
     public boolean isPremiumCheckEnabled() {

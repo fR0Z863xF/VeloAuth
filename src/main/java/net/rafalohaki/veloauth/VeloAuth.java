@@ -420,7 +420,19 @@ public class VeloAuth {
             preLoginHandler, postLoginHandler, connectionManager, databaseManager, messages);
         
         server.getEventManager().register(this, authListener);
-        logger.debug("✅ Event listeners registered in {} ms (PreLoginHandler + PostLoginHandler + AuthListener)", 
+        
+        // Register CommandBlockListener if feature is enabled
+        if (settings.isBlockCommandsBeforeAuth()) {
+            net.rafalohaki.veloauth.listener.CommandBlockListener commandBlockListener = 
+                new net.rafalohaki.veloauth.listener.CommandBlockListener(
+                    authCache, settings, messages, logger);
+            server.getEventManager().register(this, commandBlockListener);
+            logger.debug("CommandBlockListener registered (block-commands-before-auth: enabled)");
+        } else {
+            logger.debug("CommandBlockListener not registered (block-commands-before-auth: disabled)");
+        }
+        
+        logger.debug("✅ Event listeners registered in {} ms (PreLoginHandler + PostLoginHandler + AuthListener + CommandBlockListener)", 
                 System.currentTimeMillis() - startTime);
     }
 

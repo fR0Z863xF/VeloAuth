@@ -242,7 +242,9 @@ class SimpleMessagesKeysTest {
             "auth.premium_conflict_desc",
             "auth.premium_conflict_solution",
             // Offline player trying to use premium nickname
-            "auth.offline_premium_conflict"
+            "auth.offline_premium_conflict",
+            // Command blocking
+            "command.blocked.not_authenticated"
     );
 
     /**

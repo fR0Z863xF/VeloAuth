@@ -270,7 +270,8 @@ public class AuthListener {
         }
 
         if (premium) {
-            if (result.premiumUuid() != event.getUniqueId()) {
+            UUID incomingPlayerUuid = event.getUniqueId();
+            if (incomingPlayerUuid == null || !result.premiumUuid().equals(incomingPlayerUuid)) {
                 logger.warn(SECURITY_MARKER, 
                     "[OFFLINE_PREMIUM_CONFLICT] Offline player trying to use premium nickname: {}", username);
                 

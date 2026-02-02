@@ -33,6 +33,7 @@ public class CommandBlockListener {
      */
     private static final Set<String> ALLOWED_COMMANDS = new HashSet<>(Arrays.asList(
             "login",
+            "log",
             "register",
             "changepassword",
             "l",  // Common alias for /login

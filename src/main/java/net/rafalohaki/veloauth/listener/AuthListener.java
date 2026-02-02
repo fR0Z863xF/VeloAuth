@@ -268,22 +268,6 @@ public class AuthListener {
             }
         }
 
-        // FIX: 离线玩家尝试使用正版昵称 - 显示友好提示而不是"无效的会话"
-        if (!premium && result.premiumUuid() == null) {
-            // Check if this nickname is actually a premium account
-            PreLoginHandler.PremiumResolutionResult actualPremiumCheck = preLoginHandler.resolvePremiumStatus(username);
-            if (actualPremiumCheck.premium() && actualPremiumCheck.premiumUuid() != null) {
-                // This is a premium nickname, but player is connecting in offline mode
-                logger.warn(SECURITY_MARKER, 
-                    "[OFFLINE_PREMIUM_CONFLICT] Offline player trying to use premium nickname: {}", username);
-                
-                event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                    Component.text(messages.get("auth.offline_premium_conflict"), NamedTextColor.YELLOW)
-                ));
-                return;
-            }
-        }
-
         if (premium) {
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
         } else {

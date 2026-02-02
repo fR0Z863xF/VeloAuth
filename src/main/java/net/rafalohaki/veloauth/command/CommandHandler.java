@@ -4,6 +4,8 @@ import at.favre.lib.crypto.bcrypt.BCrypt;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.rafalohaki.veloauth.VeloAuth;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
@@ -266,8 +268,24 @@ public class CommandHandler {
                 authCache.addAuthorizedPlayer(authContext.player.getUniqueId(), cachedUser);
 
                 // Start session and reset security counters
-                authCache.startSession(authContext.player.getUniqueId(), authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player));
+                boolean sessionStarted = authCache.startSession(authContext.player.getUniqueId(), 
+                    authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player));
+                
+                if (!sessionStarted) {
+                    // Concurrent session limit reached
+                    authContext.player.sendMessage(Component.text(
+                        messages.get("auth.concurrent_session_limit"),
+                        NamedTextColor.RED
+                    ));
+                    return;
+                }
+                
                 resetSecurityCounters(authContext.playerAddress);
+
+                // Log audit event
+                net.rafalohaki.veloauth.audit.AuditLogger.logLoginSuccess(
+                    authContext.username, authContext.player.getUniqueId(), 
+                    PlayerAddressUtils.getPlayerIp(authContext.player));
 
                 authContext.player.sendMessage(sm.loginSuccess());
                 if (logger.isDebugEnabled()) {
@@ -288,8 +306,16 @@ public class CommandHandler {
         private void handleFailedLogin(AuthenticationContext authContext) {
             boolean blocked = SecurityUtils.registerFailedLogin(authContext.playerAddress, authCache);
 
+            // Log audit event
+            String reason = blocked ? "brute_force_blocked" : "invalid_password";
+            net.rafalohaki.veloauth.audit.AuditLogger.logLoginFailure(
+                authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player), reason);
+
             if (blocked) {
                 authContext.player.sendMessage(sm.bruteForceBlocked());
+                net.rafalohaki.veloauth.audit.AuditLogger.logBruteForceBlock(
+                    authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player), 
+                    settings.getBruteForceMaxAttempts());
                 if (logger.isWarnEnabled()) {
                     logger.warn("Gracz {} zablokowany za brute force z IP {}",
                             authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player));
@@ -352,6 +378,28 @@ public class CommandHandler {
         }
 
         private void processRegistration(Player player, String password) {
+            // FIX: Check if player is already authorized as premium
+            // Premium players should not be able to register offline accounts
+            String playerIp = PlayerAddressUtils.getPlayerIp(player);
+            if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
+                CachedAuthUser cachedUser = authCache.getAuthorizedPlayer(player.getUniqueId());
+                if (cachedUser != null && cachedUser.isPremium()) {
+                    player.sendMessage(Component.text(
+                        messages.get("auth.premium_cannot_register"),
+                        NamedTextColor.RED
+                    ));
+                    if (logger.isWarnEnabled()) {
+                        logger.warn(SECURITY_MARKER, 
+                            "[PREMIUM_REGISTER_BLOCKED] Premium player {} attempted to register offline account from IP {}",
+                            player.getUsername(), playerIp);
+                    }
+                    // Log audit event
+                    net.rafalohaki.veloauth.audit.AuditLogger.logAdminAction(
+                        player.getUsername(), "PREMIUM_REGISTER_ATTEMPT_BLOCKED", player.getUsername());
+                    return;
+                }
+            }
+            
             // Use template method for common checks
             AuthenticationContext authContext = validateAndAuthenticatePlayer(player, "registration");
             if (authContext == null) {
@@ -395,10 +443,25 @@ public class CommandHandler {
             boolean isPremium = Boolean.TRUE.equals(premiumResult.getValue());
             CachedAuthUser cachedUser = CachedAuthUser.fromRegisteredPlayer(newPlayer, isPremium);
             authCache.addAuthorizedPlayer(authContext.player.getUniqueId(), cachedUser);
-            authCache.startSession(authContext.player.getUniqueId(), authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player));
+            boolean sessionStarted = authCache.startSession(authContext.player.getUniqueId(), 
+                authContext.username, PlayerAddressUtils.getPlayerIp(authContext.player));
+
+            if (!sessionStarted) {
+                // Concurrent session limit reached (unlikely for new registration, but check anyway)
+                authContext.player.sendMessage(Component.text(
+                    messages.get("auth.concurrent_session_limit"),
+                    NamedTextColor.RED
+                ));
+                return;
+            }
 
             // Reset security counters on success
             resetSecurityCounters(authContext.playerAddress);
+
+            // Log audit event
+            net.rafalohaki.veloauth.audit.AuditLogger.logRegistration(
+                authContext.username, authContext.player.getUniqueId(), 
+                PlayerAddressUtils.getPlayerIp(authContext.player));
 
             authContext.player.sendMessage(sm.registerSuccess());
             if (logger.isInfoEnabled()) {
@@ -510,21 +573,35 @@ public class CommandHandler {
             if (!premiumResult.isDatabaseError() && Boolean.TRUE.equals(premiumResult.getValue())) {
                 authCache.removePremiumPlayer(ctx.username);
             }
-            authCache.endSession(ctx.player.getUniqueId());
+            
+            // FIX: Invalidate ALL sessions for this username (including current player)
+            // This forces re-authentication after password change
+            authCache.removeAuthorizedPlayer(ctx.player.getUniqueId());
+            java.util.List<UUID> endedSessions = authCache.endAllSessionsForUsername(ctx.username);
+            
+            // Log audit event
+            net.rafalohaki.veloauth.audit.AuditLogger.logPasswordChange(
+                ctx.username, ctx.player.getUniqueId(), PlayerAddressUtils.getPlayerIp(ctx.player));
+            
+            // Disconnect ALL players with this username (including current player)
             plugin.getServer().getAllPlayers().stream()
-                    .filter(p -> !p.equals(ctx.player))
                     .filter(p -> p.getUsername().equalsIgnoreCase(ctx.username))
                     .forEach(p -> {
-                        p.disconnect(sm.kickMessage());
-                        if (logger.isWarnEnabled()) {
-                            logger.warn("Rozłączono duplikat gracza {} - zmiana hasła z IP {}",
-                                    ctx.username, PlayerAddressUtils.getPlayerIp(ctx.player));
+                        p.disconnect(Component.text(
+                            messages.get("auth.password_changed_relogin"),
+                            NamedTextColor.YELLOW
+                        ));
+                        if (logger.isInfoEnabled()) {
+                            logger.info(AUTH_MARKER, 
+                                "Disconnected player {} - password changed from IP {}",
+                                ctx.username, PlayerAddressUtils.getPlayerIp(ctx.player));
                         }
                     });
-            ctx.player.sendMessage(sm.changePasswordSuccess());
+            
             if (logger.isInfoEnabled()) {
-                logger.info(AUTH_MARKER, "Gracz {} zmienił hasło z IP {}",
-                        ctx.username, PlayerAddressUtils.getPlayerIp(ctx.player));
+                logger.info(AUTH_MARKER, 
+                    "Password changed for {} - {} sessions invalidated", 
+                    ctx.username, endedSessions.size());
             }
         }
     }

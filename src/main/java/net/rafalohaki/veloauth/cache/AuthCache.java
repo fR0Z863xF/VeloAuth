@@ -78,6 +78,17 @@ public class AuthCache {
     private final ConcurrentHashMap<UUID, ActiveSession> activeSessions;
 
     /**
+     * Concurrent sessions tracking by username (lowercase) - prevents account sharing.
+     * Maps username -> Set of UUIDs with active sessions.
+     */
+    private final ConcurrentHashMap<String, java.util.Set<UUID>> activeSessionsByUsername;
+
+    /**
+     * Maximum concurrent sessions per player.
+     */
+    private final int maxConcurrentSessions;
+
+    /**
      * Lock dla operacji krytycznych - używaj ReentrantLock zamiast synchronized.
      */
     private final ReentrantLock cacheLock;
@@ -157,7 +168,8 @@ public class AuthCache {
         int maxPremiumCache,
         int maxLoginAttempts,
         int bruteForceTimeoutMinutes,
-        int cleanupIntervalMinutes
+        int cleanupIntervalMinutes,
+        int maxConcurrentSessions
     ) {}
 
     /**
@@ -183,6 +195,7 @@ public class AuthCache {
         this.maxPremiumCache = config.maxPremiumCache();
         this.maxLoginAttempts = config.maxLoginAttempts();
         this.bruteForceTimeoutMinutes = config.bruteForceTimeoutMinutes();
+        this.maxConcurrentSessions = config.maxConcurrentSessions();
         this.premiumTtlHours = settings.getPremiumTtlHours();
         this.premiumRefreshThreshold = settings.getPremiumRefreshThreshold();
         this.settings = settings;
@@ -193,6 +206,7 @@ public class AuthCache {
         this.bruteForceAttempts = new ConcurrentHashMap<>();
         this.premiumCache = new ConcurrentHashMap<>();
         this.activeSessions = new ConcurrentHashMap<>();
+        this.activeSessionsByUsername = new ConcurrentHashMap<>();
 
         // ReentrantLock zamiast synchronized (nie pina virtual threads)
         this.cacheLock = new ReentrantLock();
@@ -616,10 +630,33 @@ public class AuthCache {
 
     /**
      * Rozpoczyna aktywną sesję gracza - zapobiega session hijacking.
+     * 
+     * @param uuid UUID gracza
+     * @param nickname Nickname gracza
+     * @param ip IP address gracza
+     * @return true if session started successfully, false if concurrent session limit reached
      */
-    public void startSession(UUID uuid, String nickname, String ip) {
+    public boolean startSession(UUID uuid, String nickname, String ip) {
         if (uuid == null || nickname == null) {
-            return;
+            return false;
+        }
+
+        // Check concurrent session limit
+        String lowercaseNickname = nickname.toLowerCase(java.util.Locale.ROOT);
+        java.util.Set<UUID> sessions = activeSessionsByUsername.computeIfAbsent(
+            lowercaseNickname, k -> ConcurrentHashMap.newKeySet());
+        
+        // Check if player exceeded concurrent session limit
+        if (sessions.size() >= maxConcurrentSessions && !sessions.contains(uuid)) {
+            if (logger.isWarnEnabled()) {
+                logger.warn(SECURITY_MARKER, 
+                    "[CONCURRENT_SESSION_LIMIT] Player {} exceeded session limit ({}/{})", 
+                    nickname, sessions.size(), maxConcurrentSessions);
+            }
+            // Log audit event
+            net.rafalohaki.veloauth.audit.AuditLogger.logConcurrentSessionLimit(
+                nickname, sessions.size(), maxConcurrentSessions);
+            return false;
         }
 
         if (activeSessions.size() >= maxSessions && !activeSessions.containsKey(uuid)) {
@@ -628,9 +665,15 @@ public class AuthCache {
 
         ActiveSession session = new ActiveSession(uuid, nickname, ip);
         activeSessions.put(uuid, session);
+        sessions.add(uuid);
+        
+        // Log audit event
+        net.rafalohaki.veloauth.audit.AuditLogger.logSessionStart(nickname, uuid, ip);
+        
         if (logger.isDebugEnabled()) {
             logger.debug(messages.get("cache.debug.session.started"), nickname, uuid, ip);
         }
+        return true;
     }
 
     /**
@@ -642,9 +685,71 @@ public class AuthCache {
         }
 
         ActiveSession removed = activeSessions.remove(uuid);
-        if (removed != null && logger.isDebugEnabled()) {
-            logger.debug(messages.get("cache.debug.session.ended"), removed.getNickname(), uuid);
+        if (removed != null) {
+            // Remove from username tracking
+            String lowercaseNickname = removed.getNickname().toLowerCase(java.util.Locale.ROOT);
+            java.util.Set<UUID> sessions = activeSessionsByUsername.get(lowercaseNickname);
+            if (sessions != null) {
+                sessions.remove(uuid);
+                // Clean up empty sets
+                if (sessions.isEmpty()) {
+                    activeSessionsByUsername.remove(lowercaseNickname);
+                }
+            }
+            
+            // Log audit event
+            net.rafalohaki.veloauth.audit.AuditLogger.logSessionEnd(
+                removed.getNickname(), uuid, "normal_disconnect");
+            
+            if (logger.isDebugEnabled()) {
+                logger.debug(messages.get("cache.debug.session.ended"), removed.getNickname(), uuid);
+            }
         }
+    }
+
+    /**
+     * Ends all active sessions for a given username.
+     * Used when password is changed or account is compromised.
+     * 
+     * @param username Username to end all sessions for
+     * @return List of UUIDs whose sessions were ended
+     */
+    public java.util.List<UUID> endAllSessionsForUsername(String username) {
+        if (username == null) {
+            return java.util.Collections.emptyList();
+        }
+
+        String lowercaseNickname = username.toLowerCase(java.util.Locale.ROOT);
+        java.util.Set<UUID> sessions = activeSessionsByUsername.remove(lowercaseNickname);
+        
+        if (sessions == null || sessions.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        java.util.List<UUID> endedSessions = new java.util.ArrayList<>();
+        for (UUID uuid : sessions) {
+            ActiveSession removed = activeSessions.remove(uuid);
+            if (removed != null) {
+                endedSessions.add(uuid);
+                // Log audit event
+                net.rafalohaki.veloauth.audit.AuditLogger.logSessionEnd(
+                    removed.getNickname(), uuid, "all_sessions_invalidated");
+            }
+        }
+
+        if (!endedSessions.isEmpty()) {
+            // Log audit event for all sessions invalidated
+            net.rafalohaki.veloauth.audit.AuditLogger.logAllSessionsInvalidated(
+                username, "password_change_or_security");
+            
+            if (logger.isInfoEnabled()) {
+                logger.info(SECURITY_MARKER, 
+                    "[ALL_SESSIONS_ENDED] Ended {} sessions for user {}", 
+                    endedSessions.size(), username);
+            }
+        }
+
+        return endedSessions;
     }
 
     /**

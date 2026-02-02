@@ -72,6 +72,9 @@ public class AuthListener {
     private final PostLoginHandler postLoginHandler;
     private final ConnectionManager connectionManager;
     private final UuidVerificationHandler uuidVerificationHandler;
+    
+    // PreLogin rate limiter to prevent DoS attacks
+    private final net.rafalohaki.veloauth.command.IPRateLimiter preLoginRateLimiter;
 
     /**
      * Tworzy nowy AuthListener.
@@ -107,6 +110,12 @@ public class AuthListener {
         this.postLoginHandler = java.util.Objects.requireNonNull(postLoginHandler, 
             "PostLoginHandler cannot be null - initialization failed");
         this.uuidVerificationHandler = new UuidVerificationHandler(databaseManager, authCache, logger);
+        
+        // Initialize PreLogin rate limiter
+        this.preLoginRateLimiter = new net.rafalohaki.veloauth.command.IPRateLimiter(
+            settings.getPreLoginRateLimitAttempts(), 
+            settings.getPreLoginRateLimitMinutes()
+        );
 
         if (logger.isDebugEnabled()) {
             logger.debug(messages.get("connection.listener.registered"));
@@ -144,6 +153,8 @@ public class AuthListener {
      * UWAGA: PreLoginEvent WYMAGA synchronicznej odpowiedzi.
      * Premium resolution na cache miss blokuje, ale to ograniczenie API Velocity.
      * Dwa warstwy cache (AuthCache + PremiumResolverService) minimalizują impact.
+     * <p>
+     * FIX: Added PreLogin rate limiting to prevent DoS attacks (Issue #2)
      */
     @Subscribe(priority = Short.MAX_VALUE)
     public void onPreLogin(PreLoginEvent event) {
@@ -151,6 +162,25 @@ public class AuthListener {
         if (logger.isDebugEnabled()) {
             logger.debug("\uD83D\uDD0D PreLogin: {}", username);
         }
+
+        // FIX: Check PreLogin rate limit FIRST to prevent DoS
+        InetAddress address = event.getConnection().getRemoteAddress().getAddress();
+        if (preLoginRateLimiter.isRateLimited(address)) {
+            logger.warn(SECURITY_MARKER, 
+                "[PRELOGIN_RATE_LIMIT] IP {} exceeded PreLogin rate limit for user {}", 
+                address.getHostAddress(), username);
+            
+            // Log audit event
+            net.rafalohaki.veloauth.audit.AuditLogger.logPreLoginRateLimit(username, address);
+            
+            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                Component.text(messages.get("auth.rate_limit_prelogin"), NamedTextColor.RED)
+            ));
+            return;
+        }
+        
+        // Increment rate limit counter
+        preLoginRateLimiter.incrementAttempts(address);
 
         if (!validatePreLoginConditions(event, username)) {
             return;

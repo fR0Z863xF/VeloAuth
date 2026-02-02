@@ -61,6 +61,10 @@ public class Settings {
     private int ipLimitRegistrations = 3;
     private int minPasswordLength = 4;
     private int maxPasswordLength = 72;
+    // New security settings for fixes
+    private int maxConcurrentSessions = 2; // Maximum concurrent sessions per player
+    private int preLoginRateLimitAttempts = 10; // PreLogin attempts per time window
+    private int preLoginRateLimitMinutes = 1; // PreLogin rate limit time window
     // Debug settings
     private boolean debugEnabled = false; // Default to false for production
     // Language settings
@@ -209,6 +213,10 @@ public class Settings {
                   ip-limit-registrations: 3 # Account registrations per IP
                   min-password-length: 4 # Inclusive minimum password length
                   max-password-length: 72 # Inclusive maximum password length
+                  # New security features (v1.0.4+)
+                  max-concurrent-sessions: 2 # Maximum concurrent sessions per player (prevents account sharing)
+                  prelogin-ratelimit-attempts: 10 # PreLogin connection attempts per time window
+                  prelogin-ratelimit-minutes: 1 # PreLogin rate limit time window in minutes
                 
                 # Premium account detection configuration
                 premium:
@@ -458,6 +466,10 @@ public class Settings {
             ipLimitRegistrations = getInt(security, "ip-limit-registrations", ipLimitRegistrations);
             minPasswordLength = getInt(security, "min-password-length", minPasswordLength);
             maxPasswordLength = getInt(security, "max-password-length", maxPasswordLength);
+            // New security settings
+            maxConcurrentSessions = getInt(security, "max-concurrent-sessions", maxConcurrentSessions);
+            preLoginRateLimitAttempts = getInt(security, "prelogin-ratelimit-attempts", preLoginRateLimitAttempts);
+            preLoginRateLimitMinutes = getInt(security, "prelogin-ratelimit-minutes", preLoginRateLimitMinutes);
         }
     }
 
@@ -880,6 +892,18 @@ public class Settings {
 
     public int getMaxPasswordLength() {
         return maxPasswordLength;
+    }
+
+    public int getMaxConcurrentSessions() {
+        return maxConcurrentSessions;
+    }
+
+    public int getPreLoginRateLimitAttempts() {
+        return preLoginRateLimitAttempts;
+    }
+
+    public int getPreLoginRateLimitMinutes() {
+        return preLoginRateLimitMinutes;
     }
 
     public boolean isPremiumCheckEnabled() {

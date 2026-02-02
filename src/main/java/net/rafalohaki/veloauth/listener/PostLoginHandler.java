@@ -45,6 +45,9 @@ public class PostLoginHandler {
 
     /**
      * Handles premium player post-login (authorization and session start).
+     * 
+     * FIX: Check database for existing offline account with same username.
+     * If found, prevent premium player from accessing to avoid nickname conflict.
      *
      * @param player   The premium player
      * @param playerIp Player's IP address
@@ -55,7 +58,54 @@ public class PostLoginHandler {
         }
 
         UUID playerUuid = player.getUniqueId();
-        UUID premiumUuid = Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
+        
+        // FIX: Check if an offline account with this username already exists
+        var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
+        if (dbResult.isDatabaseError()) {
+            logger.error("Database error while checking for existing account for premium player {}: {}", 
+                player.getUsername(), dbResult.getErrorMessage());
+            player.disconnect(Component.text(
+                messages.get("error.database.query"),
+                NamedTextColor.RED
+            ));
+            return;
+        }
+        
+        RegisteredPlayer existingPlayer = dbResult.getValue();
+        if (existingPlayer != null) {
+            // Offline account exists with this username
+            UUID existingUuid = java.util.UUID.fromString(existingPlayer.getUuid());
+            
+            // Check if UUID matches (same player, previously registered as offline)
+            if (!playerUuid.equals(existingUuid)) {
+                // Different UUID - this is a nickname conflict!
+                logger.warn("[PREMIUM_CONFLICT] Premium player {} (UUID: {}) conflicts with existing offline account (UUID: {})",
+                    player.getUsername(), playerUuid, existingUuid);
+                
+                // Disconnect premium player with explanation
+                player.disconnect(Component.text()
+                    .append(Component.text(messages.get("auth.premium_conflict_title"), NamedTextColor.RED))
+                    .append(Component.newline())
+                    .append(Component.text(messages.get("auth.premium_conflict_desc"), NamedTextColor.YELLOW))
+                    .append(Component.newline())
+                    .append(Component.text(messages.get("auth.premium_conflict_solution"), NamedTextColor.GREEN))
+                    .build());
+                
+                // Log audit event
+                net.rafalohaki.veloauth.audit.AuditLogger.logAdminAction(
+                    "SYSTEM", "PREMIUM_CONFLICT_BLOCKED", player.getUsername());
+                return;
+            }
+            
+            // Same UUID - player was previously registered as offline, now connecting as premium
+            // This is OK - just update their premium status in cache
+            if (logger.isInfoEnabled()) {
+                logger.info("Premium player {} was previously registered as offline - allowing access", 
+                    player.getUsername());
+            }
+        }
+
+        UUID premiumUuid = java.util.Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
                 .map(PremiumCacheEntry::getPremiumUuid)
                 .orElse(playerUuid);
 
@@ -68,7 +118,16 @@ public class PostLoginHandler {
                 premiumUuid);
 
         authCache.addAuthorizedPlayer(playerUuid, cachedUser);
-        authCache.startSession(playerUuid, player.getUsername(), playerIp);
+        boolean sessionStarted = authCache.startSession(playerUuid, player.getUsername(), playerIp);
+        
+        if (!sessionStarted) {
+            // Concurrent session limit reached
+            player.disconnect(Component.text(
+                messages.get("auth.concurrent_session_limit"),
+                NamedTextColor.RED
+            ));
+            return;
+        }
 
         // Premium player is now authorized in cache
         // ServerPreConnectEvent will redirect to PicoLimbo automatically

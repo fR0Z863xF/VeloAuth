@@ -360,13 +360,13 @@ public class CommandHandler {
             String confirmPassword = args[1];
 
             // Validate passwords
-            ValidationUtils.ValidationResult passwordValidation = ValidationUtils.validatePassword(password, settings);
+            ValidationUtils.ValidationResult passwordValidation = ValidationUtils.validatePasswordWithMessages(password, settings, messages);
             if (!passwordValidation.valid()) {
                 player.sendMessage(ValidationUtils.createErrorComponent(passwordValidation.getErrorMessage()));
                 return;
             }
 
-            ValidationUtils.ValidationResult matchValidation = ValidationUtils.validatePasswordMatch(password, confirmPassword);
+            ValidationUtils.ValidationResult matchValidation = ValidationUtils.validatePasswordMatchWithMessages(password, confirmPassword, messages);
             if (!matchValidation.valid()) {
                 player.sendMessage(ValidationUtils.createErrorComponent(matchValidation.getErrorMessage()));
                 return;
@@ -503,7 +503,7 @@ public class CommandHandler {
             String newPassword = args[1];
 
             // Validate new password
-            ValidationUtils.ValidationResult passwordValidation = ValidationUtils.validatePassword(newPassword, settings);
+            ValidationUtils.ValidationResult passwordValidation = ValidationUtils.validatePasswordWithMessages(newPassword, settings, messages);
             if (!passwordValidation.valid()) {
                 player.sendMessage(ValidationUtils.createErrorComponent(passwordValidation.getErrorMessage()));
                 return;

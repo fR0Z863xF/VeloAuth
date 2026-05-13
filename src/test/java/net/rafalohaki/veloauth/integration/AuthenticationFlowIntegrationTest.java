@@ -1,10 +1,17 @@
 package net.rafalohaki.veloauth.integration;
 
+import com.velocitypowered.api.event.connection.PreLoginEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
+import com.velocitypowered.api.proxy.server.ServerInfo;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
+import net.rafalohaki.veloauth.connection.ConnectionManager;
 import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
+import net.rafalohaki.veloauth.listener.AuthListener;
+import net.rafalohaki.veloauth.listener.ListenerFactory;
 import net.rafalohaki.veloauth.listener.PostLoginHandler;
 import net.rafalohaki.veloauth.listener.PreLoginHandler;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
@@ -59,66 +66,75 @@ class AuthenticationFlowIntegrationTest {
     void setUp() {
         messages = new Messages();
         messages.setLanguage("en");
-        
-        java.nio.file.Path tempDir;
+
+        java.nio.file.Path tempDir = createTempDirectory();
+        settings = new Settings(tempDir);
+        settings.load();
+
+        authCache = new AuthCache(
+                new AuthCache.AuthCacheConfig(60, 10000, 1000, 10000, 5, 5, 1, 60),
+                settings, messages
+        );
+
+        databaseManager = createTestDatabaseManager();
+        premiumResolverService = createPremiumResolverService();
+        configureLoggerMocks();
+
+        Metrics.Factory metricsFactory = mock(Metrics.Factory.class);
+        plugin = new net.rafalohaki.veloauth.VeloAuth(proxyServer, logger, tempDir, metricsFactory);
+
+        preLoginHandler = ListenerFactory.createPreLoginHandler(
+                authCache, premiumResolverService, settings, databaseManager, messages, logger
+        );
+
+        configureSchedulerMocks();
+
+        postLoginHandler = ListenerFactory.createPostLoginHandler(authCache, databaseManager, messages, logger);
+    }
+
+    private java.nio.file.Path createTempDirectory() {
         try {
-            tempDir = java.nio.file.Files.createTempDirectory("veloauth-it-config");
+            return java.nio.file.Files.createTempDirectory("veloauth-it-config");
         } catch (java.io.IOException e) {
-            tempDir = java.nio.file.Paths.get("target", "veloauth-it-config");
-            try { 
-                java.nio.file.Files.createDirectories(tempDir); 
+            java.nio.file.Path fallback = java.nio.file.Paths.get("target", "veloauth-it-config");
+            try {
+                java.nio.file.Files.createDirectories(fallback);
             } catch (java.io.IOException ignored) {
                 // Fallback directory creation failed, test will use non-existent path
             }
+            return fallback;
         }
-        settings = new Settings(tempDir);
-        settings.load();
-        
-        authCache = new AuthCache(
-                new AuthCache.AuthCacheConfig(60, 10000, 1000, 10000, 5, 5, 1, 2),
-                settings, messages
-        );
-        
-        net.rafalohaki.veloauth.database.DatabaseConfig testConfig = 
-                net.rafalohaki.veloauth.database.DatabaseConfig.forLocalDatabase("H2", "memtest");
-        databaseManager = new TestDatabaseManager(testConfig, messages);
+    }
 
+    private TestDatabaseManager createTestDatabaseManager() {
+        net.rafalohaki.veloauth.database.DatabaseConfig testConfig =
+                net.rafalohaki.veloauth.database.DatabaseConfig.forLocalDatabase("H2", "memtest");
+        return new TestDatabaseManager(testConfig, messages);
+    }
+
+        private PremiumResolverService createPremiumResolverService() {
         try {
             com.j256.ormlite.jdbc.JdbcConnectionSource cs =
                     new com.j256.ormlite.jdbc.JdbcConnectionSource("jdbc:h2:mem:veloauth_premium");
             net.rafalohaki.veloauth.database.PremiumUuidDao premiumDao =
                     new net.rafalohaki.veloauth.database.PremiumUuidDao(cs);
-            premiumResolverService = new PremiumResolverService(logger, settings, premiumDao);
+            return new PremiumResolverService(logger, settings, premiumDao);
         } catch (java.sql.SQLException e) {
             throw new IllegalStateException("Failed to initialize PremiumUuidDao for test", e);
         }
-        
+    }
+
+    private void configureLoggerMocks() {
         when(logger.isDebugEnabled()).thenReturn(false);
         when(logger.isInfoEnabled()).thenReturn(false);
+    }
 
-        Metrics.Factory metricsFactory = mock(Metrics.Factory.class);
-        plugin = new net.rafalohaki.veloauth.VeloAuth(proxyServer, logger, tempDir, metricsFactory);
-        
-        preLoginHandler = new PreLoginHandler(
-                authCache,
-                premiumResolverService,
-                databaseManager,
-                messages,
-                logger
-        );
-        
+    private void configureSchedulerMocks() {
         when(proxyServer.getScheduler()).thenReturn(mock(com.velocitypowered.api.scheduler.Scheduler.class));
-        com.velocitypowered.api.scheduler.Scheduler.TaskBuilder taskBuilder = 
+        com.velocitypowered.api.scheduler.Scheduler.TaskBuilder taskBuilder =
                 mock(com.velocitypowered.api.scheduler.Scheduler.TaskBuilder.class);
         when(proxyServer.getScheduler().buildTask(any(), any(Runnable.class))).thenReturn(taskBuilder);
         when(taskBuilder.schedule()).thenReturn(mock(com.velocitypowered.api.scheduler.ScheduledTask.class));
-        
-        postLoginHandler = new PostLoginHandler(
-                authCache,
-                databaseManager,
-                messages,
-                logger
-        );
     }
 
     /**
@@ -140,7 +156,7 @@ class AuthenticationFlowIntegrationTest {
                 "Premium player username should be valid");
         
         PreLoginHandler.PremiumResolutionResult result = 
-                preLoginHandler.resolvePremiumStatus(username);
+                preLoginHandler.resolvePremiumStatusAsync(username).join();
         assertTrue(result.premium(), "Player should be detected as premium");
         assertNotNull(result.premiumUuid(), "Premium UUID should be present");
         
@@ -166,7 +182,7 @@ class AuthenticationFlowIntegrationTest {
      * Requirements: 4.1, 4.2
      */
     @Test
-    void testOfflinePlayerLoginFlow_shouldRedirectToPicoLimbo() {
+    void testOfflinePlayerLoginFlow_shouldRedirectToAuthServer() {
         // Setup offline player
         String username = "OfflinePlayer";
         UUID offlineUuid = UUID.randomUUID();
@@ -180,7 +196,7 @@ class AuthenticationFlowIntegrationTest {
                 "Offline player username should be valid");
         
         PreLoginHandler.PremiumResolutionResult result = 
-                preLoginHandler.resolvePremiumStatus(username);
+                preLoginHandler.resolvePremiumStatusAsync(username).join();
         assertFalse(result.premium(), "Player should be detected as offline");
         
         // Mock player
@@ -208,16 +224,16 @@ class AuthenticationFlowIntegrationTest {
         InetAddress attackerIp = InetAddress.getByName("10.0.0.1");
         
         // Initially not blocked
-        assertFalse(preLoginHandler.isBruteForceBlocked(attackerIp),
+        assertFalse(preLoginHandler.isBruteForceBlocked(attackerIp, "attacker"),
                 "IP should not be blocked initially");
         
         // Simulate failed login attempts
         for (int i = 0; i < 5; i++) {
-            authCache.registerFailedLogin(attackerIp);
+            authCache.registerFailedLogin(attackerIp, "attacker");
         }
         
         // Should be blocked after threshold
-        assertTrue(preLoginHandler.isBruteForceBlocked(attackerIp),
+        assertTrue(preLoginHandler.isBruteForceBlocked(attackerIp, "attacker"),
                 "IP should be blocked after multiple failed attempts");
     }
 
@@ -246,16 +262,13 @@ class AuthenticationFlowIntegrationTest {
         // Test: Premium player tries to use this nickname
         boolean isPremium = true;
         boolean existingIsPremium = (existingOfflinePlayer.getPremiumUuid() != null);
+        UUID currentPremiumUuid = UUID.randomUUID();
         
         boolean hasConflict = preLoginHandler.isNicknameConflict(
-                existingOfflinePlayer, isPremium, existingIsPremium);
+                existingOfflinePlayer, isPremium, existingIsPremium, currentPremiumUuid);
         
         assertTrue(hasConflict, 
                 "Should detect conflict when premium player uses offline nickname");
-        
-        assertDoesNotThrow(() ->
-                preLoginHandler.handleNicknameConflictNoEvent(conflictedNickname, existingOfflinePlayer, isPremium),
-                "Conflict handling should not throw exceptions");
     }
 
     /**
@@ -279,22 +292,18 @@ class AuthenticationFlowIntegrationTest {
         boolean existingIsPremium = false;
         
         boolean hasConflict = preLoginHandler.isNicknameConflict(
-                conflictedPlayer, isPremium, existingIsPremium);
+                conflictedPlayer, isPremium, existingIsPremium, null);
         
         assertTrue(hasConflict,
                 "Should detect conflict when offline player accesses conflicted account");
-        
-        assertDoesNotThrow(() ->
-                preLoginHandler.handleNicknameConflictNoEvent(conflictedNickname, conflictedPlayer, isPremium),
-                "Conflict handling should not throw exceptions");
     }
 
     /**
-     * Test: PicoLimbo routing for unauthorized players
+     * Test: Auth server routing for unauthorized players
      * Requirements: 4.2
      */
     @Test
-    void testPicoLimboRouting_unauthorizedPlayer_shouldTransferToPicoLimbo() {
+    void testAuthServerRouting_unauthorizedPlayer_shouldTransferToAuthServer() {
         // Setup unauthorized player
         String username = "UnauthorizedPlayer";
         UUID playerUuid = UUID.randomUUID();
@@ -410,6 +419,8 @@ class AuthenticationFlowIntegrationTest {
                 "Username with hyphen should be invalid");
         assertFalse(preLoginHandler.isValidUsername("Player.123"),
                 "Username with dot should be invalid");
+        assertFalse(preLoginHandler.isValidUsername("..Player123"),
+                "Username with double Floodgate-like prefix should be invalid");
         assertFalse(preLoginHandler.isValidUsername(""),
                 "Empty username should be invalid");
         assertFalse(preLoginHandler.isValidUsername(null),
@@ -487,5 +498,167 @@ class AuthenticationFlowIntegrationTest {
                         "Player " + i + " should be authorized");
             }
         }, "Concurrent operations should not cause exceptions");
+    }
+
+    /**
+     * Test: Premium player with DB error during pre-login should be DENIED, not forced offline.
+     * Reproduces the bug where a premium player gets forceOfflineMode on DB error,
+     * then registers with a wrong (offline) UUID, permanently corrupting their account.
+     */
+    @Test
+    void testPremiumPlayer_dbErrorDuringPreLogin_shouldDenyNotForceOffline() throws Exception {
+        // Setup: premium player confirmed by resolver
+        String username = "PremiumDBError";
+        UUID premiumUuid = UUID.randomUUID();
+        authCache.addPremiumPlayer(username, premiumUuid);
+
+        // DB lookup returns error (simulating timeout/connection failure)
+        databaseManager.setUuidOrNicknameResult(
+                CompletableFuture.completedFuture(
+                        DatabaseManager.DbResult.databaseError("Connection timeout")));
+
+        // Create AuthListener with full dependencies
+        ConnectionManager connectionManager = mock(ConnectionManager.class);
+        PostLoginHandler plHandler = ListenerFactory.createPostLoginHandler(authCache, databaseManager, messages, logger);
+        setPluginInitialized(true);
+        AuthListener authListener = new AuthListener(
+                plugin, authCache, settings, preLoginHandler, plHandler,
+                connectionManager, databaseManager, messages);
+
+        // Simulate PreLoginEvent
+        com.velocitypowered.api.proxy.InboundConnection connection =
+                mock(com.velocitypowered.api.proxy.InboundConnection.class);
+        when(connection.getRemoteAddress()).thenReturn(
+                new java.net.InetSocketAddress("127.0.0.1", 25565));
+        PreLoginEvent event = new PreLoginEvent(connection, username);
+
+        // Execute pre-login and wait for async completion
+        awaitPreLoginEvent(authListener, event);
+
+        // CRITICAL ASSERTION: Premium player must be DENIED, not forced offline
+        PreLoginEvent.PreLoginComponentResult result = event.getResult();
+        assertFalse(result.isForceOfflineMode(),
+                "Premium player with DB error must NOT be forced to offline mode - this causes UUID corruption");
+        assertFalse(result.isAllowed(),
+                "Premium player with DB error should be denied (not just allowed/offline)");
+    }
+
+    /**
+     * Test: Offline player with DB error during pre-login can still use forceOfflineMode.
+     * Only premium players should be denied on DB error - offline players are already offline.
+     */
+    @Test
+    void testOfflinePlayer_dbErrorDuringPreLogin_shouldForceOffline() throws Exception {
+        // Setup: offline player (not premium)
+        String username = "OfflineDBError";
+        authCache.addPremiumPlayer(username, null); // null UUID = offline
+
+        // DB lookup returns error
+        databaseManager.setUuidOrNicknameResult(
+                CompletableFuture.completedFuture(
+                        DatabaseManager.DbResult.databaseError("Connection timeout")));
+
+        // Create AuthListener
+        ConnectionManager connectionManager = mock(ConnectionManager.class);
+        PostLoginHandler plHandler = ListenerFactory.createPostLoginHandler(authCache, databaseManager, messages, logger);
+        setPluginInitialized(true);
+        AuthListener authListener = new AuthListener(
+                plugin, authCache, settings, preLoginHandler, plHandler,
+                connectionManager, databaseManager, messages);
+
+        // Simulate PreLoginEvent
+        com.velocitypowered.api.proxy.InboundConnection connection =
+                mock(com.velocitypowered.api.proxy.InboundConnection.class);
+        when(connection.getRemoteAddress()).thenReturn(
+                new java.net.InetSocketAddress("127.0.0.1", 25565));
+        PreLoginEvent event = new PreLoginEvent(connection, username);
+
+        // Execute pre-login and wait for async completion
+        awaitPreLoginEvent(authListener, event);
+
+        // Offline player can safely use forceOfflineMode (they're already offline)
+        PreLoginEvent.PreLoginComponentResult result = event.getResult();
+        assertTrue(result.isForceOfflineMode(),
+                "Offline player with DB error should still use forceOfflineMode - it's safe for them");
+    }
+
+    @Test
+    void testBackendVerification_asyncUuidLookupShouldRecheckAuthorizationState() throws Exception {
+        String username = "AsyncVerification";
+        UUID playerUuid = UUID.randomUUID();
+        String playerIp = "192.168.1.105";
+
+        CompletableFuture<DatabaseManager.DbResult<RegisteredPlayer>> uuidLookup = new CompletableFuture<>();
+        databaseManager.setFindResult(username.toLowerCase(), uuidLookup);
+
+        ConnectionManager connectionManager = mock(ConnectionManager.class);
+        AuthListener authListener = new AuthListener(
+                plugin, authCache, settings, preLoginHandler, postLoginHandler,
+                connectionManager, databaseManager, messages);
+        setPluginInitialized(true);
+
+        CachedAuthUser cachedUser = new CachedAuthUser(
+                playerUuid, username, playerIp, System.currentTimeMillis(), false, null);
+        authCache.addAuthorizedPlayer(playerUuid, cachedUser);
+        authCache.startSession(playerUuid, username, playerIp);
+
+        Player player = mock(Player.class);
+        when(player.getUsername()).thenReturn(username);
+        when(player.getUniqueId()).thenReturn(playerUuid);
+        when(player.isOnlineMode()).thenReturn(false);
+        when(player.isActive()).thenReturn(true);
+        when(player.getRemoteAddress()).thenReturn(new InetSocketAddress(playerIp, 25565));
+
+        RegisteredServer backendServer = mock(RegisteredServer.class);
+        when(backendServer.getServerInfo()).thenReturn(
+                new ServerInfo("backend", InetSocketAddress.createUnresolved("127.0.0.1", 25566)));
+
+        RegisteredServer previousServer = mock(RegisteredServer.class);
+        when(previousServer.getServerInfo()).thenReturn(
+                new ServerInfo(settings.getAuthServerName(), InetSocketAddress.createUnresolved("127.0.0.1", 25565)));
+
+        ServerPreConnectEvent event = new ServerPreConnectEvent(player, backendServer, previousServer);
+        com.velocitypowered.api.event.EventTask task = authListener.onServerPreConnect(event);
+        assertNotNull(task, "Backend UUID verification should run asynchronously");
+
+        authCache.removeAuthorizedPlayer(playerUuid);
+        authCache.endSession(playerUuid);
+
+        RegisteredPlayer dbPlayer = new RegisteredPlayer();
+        dbPlayer.setNickname(username);
+        dbPlayer.setUuid(playerUuid.toString());
+        uuidLookup.complete(DatabaseManager.DbResult.success(dbPlayer));
+
+        awaitEventTask(task);
+
+        assertFalse(event.getResult().isAllowed(),
+                "Async UUID verification must re-check auth state before allowing backend access");
+    }
+
+    private void setPluginInitialized(boolean value) throws Exception {
+        java.lang.reflect.Field field = net.rafalohaki.veloauth.VeloAuth.class.getDeclaredField("initialized");
+        field.setAccessible(true);
+        field.set(plugin, value);
+    }
+
+    private void awaitPreLoginEvent(AuthListener authListener, PreLoginEvent event) {
+        com.velocitypowered.api.event.EventTask task = authListener.onPreLogin(event);
+        if (task != null) {
+            awaitEventTask(task);
+        }
+    }
+
+    private void awaitEventTask(com.velocitypowered.api.event.EventTask task) {
+        try {
+            java.lang.reflect.Field futureField = task.getClass().getDeclaredField("future");
+            futureField.setAccessible(true);
+            ((CompletableFuture<?>) futureField.get(task)).join();
+        } catch (ReflectiveOperationException e) {
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }

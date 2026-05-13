@@ -27,7 +27,7 @@ import java.util.UUID;
  * 
  * @since 2.1.0
  */
-public class UuidVerificationHandler {
+class UuidVerificationHandler {
 
     private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
 
@@ -42,27 +42,31 @@ public class UuidVerificationHandler {
      * @param authCache       Authorization cache
      * @param logger          Logger instance
      */
-    public UuidVerificationHandler(DatabaseManager databaseManager, AuthCache authCache, Logger logger) {
+    UuidVerificationHandler(DatabaseManager databaseManager, AuthCache authCache, Logger logger) {
         this.databaseManager = databaseManager;
         this.authCache = authCache;
         this.logger = logger;
     }
 
     /**
-     * Verifies player UUID against database.
+     * Asynchronously verifies player UUID against database.
      * Premium players skip verification as they don't need to be registered.
      *
+     * <p>Returns a {@link java.util.concurrent.CompletableFuture} so that callers can use
+     * {@link com.velocitypowered.api.event.EventTask#resumeWhenComplete} in
+     * {@code ServerPreConnectEvent} handlers and avoid blocking Netty IO threads.
+     *
      * @param player Player to verify
-     * @return true if verification passes
+     * @return CompletableFuture that resolves to true if verification passes
      */
-    public boolean verifyPlayerUuid(Player player) {
+    public java.util.concurrent.CompletableFuture<Boolean> verifyPlayerUuid(Player player) {
         try {
             if (player.isOnlineMode()) {
-                return handlePremiumPlayer(player);
+                return java.util.concurrent.CompletableFuture.completedFuture(handlePremiumPlayer(player));
             }
-            return verifyCrackedPlayerUuid(player);
-        } catch (Exception e) {
-            return handleVerificationError(player, e);
+            return verifyCrackedPlayerUuidAsync(player);
+        } catch (RuntimeException e) {
+            return java.util.concurrent.CompletableFuture.completedFuture(handleVerificationError(player, e));
         }
     }
 
@@ -73,18 +77,19 @@ public class UuidVerificationHandler {
         return true;
     }
 
-    private boolean verifyCrackedPlayerUuid(Player player) {
-        try {
-            var dbResult = databaseManager.findPlayerByNickname(player.getUsername()).join();
-
-            if (dbResult.isDatabaseError()) {
-                return handleDatabaseVerificationError(player, dbResult);
-            }
-
-            return performUuidVerification(player, dbResult.getValue());
-        } catch (Exception e) {
-            return handleAsyncVerificationError(player, e);
-        }
+    private java.util.concurrent.CompletableFuture<Boolean> verifyCrackedPlayerUuidAsync(Player player) {
+        String username = player.getUsername();
+        return databaseManager.findPlayerByNickname(username)
+                .thenApply(dbResult -> {
+                    if (dbResult.isDatabaseError()) {
+                        return handleDatabaseVerificationError(player, dbResult);
+                    }
+                    return performUuidVerification(player, dbResult.getValue());
+                })
+                .exceptionally(t -> {
+                    Exception e = t instanceof Exception ex ? ex : new RuntimeException(t);
+                    return handleAsyncVerificationError(player, e);
+                });
     }
 
     private boolean handleDatabaseVerificationError(Player player, DbResult<RegisteredPlayer> dbResult) {
@@ -105,6 +110,16 @@ public class UuidVerificationHandler {
 
         if (dbPlayer.getConflictMode()) {
             logConflictModeActive(player, dbPlayer);
+            UUID playerUuid = player.getUniqueId();
+            UUID storedUuid = UuidUtils.parseUuidSafely(dbPlayer.getUuid());
+            UUID storedPremiumUuid = UuidUtils.parseUuidSafely(dbPlayer.getPremiumUuid());
+            boolean uuidMatches = (storedUuid != null && playerUuid.equals(storedUuid))
+                    || (storedPremiumUuid != null && playerUuid.equals(storedPremiumUuid));
+            if (!uuidMatches) {
+                logger.warn(SECURITY_MARKER,
+                        "[CONFLICT_MODE] UUID mismatch for {} - player UUID: {}, stored: {}, premium: {}",
+                        player.getUsername(), playerUuid, storedUuid, storedPremiumUuid);
+            }
             return true;
         }
 

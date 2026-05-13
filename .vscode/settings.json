@@ -5,5 +5,10 @@
         "connectionId": "rafalohaki",
         "projectKey": "rafalohaki_VeloAuth"
     },
-    "kiroAgent.configureMCP": "Enabled"
+    "kiroAgent.configureMCP": "Enabled",
+    "chat.tools.terminal.autoApprove": {
+        "jar": true,
+        "mvnd": true,
+        "javap": true
+    }
 }

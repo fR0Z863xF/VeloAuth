@@ -2,6 +2,7 @@ package net.rafalohaki.veloauth.model;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Model danych użytkownika w cache autoryzacji.
@@ -30,6 +31,12 @@ public final class CachedAuthUser {
      * Timestamp utworzenia wpisu w cache (TTL).
      */
     private final long cacheTime;
+
+    /**
+     * Timestamp ostatniego dostępu do wpisu (LRU eviction).
+     * AtomicLong dla thread-safe update bez synchronizacji.
+     */
+    private final AtomicLong lastAccessTime;
 
     /**
      * Timestamp ostatniego logowania.
@@ -61,8 +68,11 @@ public final class CachedAuthUser {
         if (uuid == null) {
             throw new IllegalArgumentException("UUID nie może być null");
         }
-        if (nickname == null || nickname.isEmpty()) {
+        if (nickname == null || nickname.isBlank()) {
             throw new IllegalArgumentException("Nickname nie może być pusty");
+        }
+        if (!isPremium && premiumUuid != null) {
+            throw new IllegalArgumentException("Premium UUID wymaga konta premium");
         }
 
         this.uuid = uuid;
@@ -72,6 +82,7 @@ public final class CachedAuthUser {
         this.isPremium = isPremium;
         this.premiumUuid = premiumUuid;
         this.cacheTime = System.currentTimeMillis();
+        this.lastAccessTime = new AtomicLong(this.cacheTime);
     }
 
     /**
@@ -82,6 +93,19 @@ public final class CachedAuthUser {
      * @return CachedAuthUser object
      */
     public static CachedAuthUser fromRegisteredPlayer(RegisteredPlayer player, boolean isPremium) {
+        return fromRegisteredPlayer(player, isPremium, null);
+    }
+
+    /**
+     * Tworzy CachedAuthUser z RegisteredPlayer z opcjonalnym premium UUID.
+     *
+     * @param player      Zarejestrowany gracz
+     * @param isPremium   Status premium gracza
+     * @param premiumUuid Premium UUID z cache (może być null)
+     * @return CachedAuthUser object
+     */
+    public static CachedAuthUser fromRegisteredPlayer(RegisteredPlayer player, boolean isPremium,
+                                                       UUID premiumUuid) {
         if (player == null) {
             throw new IllegalArgumentException("Player nie może być null");
         }
@@ -97,7 +121,7 @@ public final class CachedAuthUser {
                 player.getLoginIp(),
                 player.getLoginDate(),
                 isPremium,
-                null // Premium UUID is now handled separately in PREMIUM_UUIDS table
+                premiumUuid
         );
     }
 
@@ -135,6 +159,23 @@ public final class CachedAuthUser {
      */
     public long getCacheTime() {
         return cacheTime;
+    }
+
+    /**
+     * Aktualizuje timestamp ostatniego dostępu (LRU touch).
+     * Thread-safe dzięki AtomicLong.
+     */
+    public void touch() {
+        lastAccessTime.set(System.currentTimeMillis());
+    }
+
+    /**
+     * Zwraca timestamp ostatniego dostępu do wpisu cache.
+     *
+     * @return Czas ostatniego dostępu w milisekundach
+     */
+    public long getLastAccessTime() {
+        return lastAccessTime.get();
     }
 
     /**
@@ -178,7 +219,7 @@ public final class CachedAuthUser {
         long ttlMillis = ttlMinutes * 60L * 1000L;
         long currentTime = System.currentTimeMillis();
 
-        return (currentTime - cacheTime) < ttlMillis;
+        return (currentTime - lastAccessTime.get()) < ttlMillis;
     }
 
     /**
@@ -215,7 +256,7 @@ public final class CachedAuthUser {
      * @return Nowy CachedAuthUser object
      */
     public CachedAuthUser withUpdatedIp(String newLoginIp) {
-        return new CachedAuthUser(
+        CachedAuthUser updated = new CachedAuthUser(
                 this.uuid,
                 this.nickname,
                 newLoginIp,
@@ -223,6 +264,9 @@ public final class CachedAuthUser {
                 this.isPremium,
                 this.premiumUuid
         );
+        // Preserve last access time from original entry
+        updated.lastAccessTime.set(this.lastAccessTime.get());
+        return updated;
     }
 
     @Override
@@ -243,13 +287,14 @@ public final class CachedAuthUser {
     @Override
     public String toString() {
         return "CachedAuthUser{" +
-                "uuid=" + uuid +
+                "uuid=[REDACTED]" +
                 ", nickname='" + nickname + '\'' +
-                ", loginIp='" + loginIp + '\'' +
+                ", loginIp='[REDACTED]'" +
                 ", cacheTime=" + cacheTime +
+                ", lastAccessTime=" + lastAccessTime.get() +
                 ", loginTime=" + loginTime +
                 ", isPremium=" + isPremium +
-                ", premiumUuid=" + premiumUuid +
+                ", hasPremiumUuid=" + (premiumUuid != null) +
                 ", cacheAgeMinutes=" + getCacheAgeMinutes() +
                 '}';
     }

@@ -3,6 +3,8 @@ package net.rafalohaki.veloauth.alert;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.Marker;
+import org.slf4j.MarkerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,10 +22,12 @@ import java.util.Objects;
  */
 public class DiscordWebhookClient {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(DiscordWebhookClient.class);
+    private static final Logger logger = LoggerFactory.getLogger(DiscordWebhookClient.class);
+    private static final Marker ALERT_MARKER = MarkerFactory.getMarker("ALERT");
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
     private static final int MAX_CONTENT_LENGTH = 2000; // Discord limit
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
+    private static final String DISCORD_WEBHOOK_URL_PREFIX = "https://discord.com/api/webhooks/";
 
     private final String webhookUrl;
     private final HttpClient httpClient;
@@ -46,8 +50,8 @@ public class DiscordWebhookClient {
                 .connectTimeout(REQUEST_TIMEOUT)
                 .build();
         
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("Discord webhook client initialized (webhook: {})", maskWebhookUrl());
+        if (logger.isDebugEnabled()) {
+            logger.debug(ALERT_MARKER, "Discord webhook client initialized (webhook: {})", maskWebhookUrl());
         }
     }
     
@@ -58,8 +62,16 @@ public class DiscordWebhookClient {
      * @return true if valid Discord webhook URL
      */
     private static boolean isValidDiscordWebhookUrl(String url) {
-        return url.startsWith("https://discord.com/api/webhooks/") ||
-               url.startsWith("https://discordapp.com/api/webhooks/");
+        if (!url.startsWith(DISCORD_WEBHOOK_URL_PREFIX) &&
+            !url.startsWith("https://discordapp.com/api/webhooks/")) {
+            return false;
+        }
+        // Validate that URL contains webhook ID and token segments after the prefix
+        String path = url.startsWith(DISCORD_WEBHOOK_URL_PREFIX)
+                ? url.substring(DISCORD_WEBHOOK_URL_PREFIX.length())
+                : url.substring("https://discordapp.com/api/webhooks/".length());
+        String[] segments = path.split("/", -1);
+        return segments.length >= 2 && !segments[0].isEmpty() && !segments[1].isEmpty();
     }
     
     /**
@@ -85,7 +97,7 @@ public class DiscordWebhookClient {
      */
     public boolean sendMessage(String content) {
         if (content == null || content.isBlank()) {
-            LOGGER.warn("Discord webhook: empty content, skipping");
+            logger.warn(ALERT_MARKER, "Discord webhook: empty content, skipping");
             return false;
         }
 
@@ -132,22 +144,22 @@ public class DiscordWebhookClient {
             return handleHttpResponse(response);
 
         } catch (IOException e) {
-            if (LOGGER.isWarnEnabled()) {
-                LOGGER.warn("Discord webhook IO error: {} (webhook: {})", 
-                        e.getMessage(), maskWebhookUrl());
+            if (logger.isWarnEnabled()) {
+                logger.warn(ALERT_MARKER, "Discord webhook IO error (webhook: {})",
+                        maskWebhookUrl(), e);
             }
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            if (LOGGER.isWarnEnabled()) {
-                LOGGER.warn("Discord webhook interrupted: {} (webhook: {})", 
-                        e.getMessage(), maskWebhookUrl());
+            if (logger.isWarnEnabled()) {
+                logger.warn(ALERT_MARKER, "Discord webhook interrupted (webhook: {})",
+                        maskWebhookUrl(), e);
             }
             return false;
         } catch (Exception e) {
             // SECURITY: Don't log exception with webhook URL in message
-            if (LOGGER.isErrorEnabled()) {
-                LOGGER.error("Discord webhook unexpected error (webhook: {})", maskWebhookUrl(), e);
+            if (logger.isErrorEnabled()) {
+                logger.error(ALERT_MARKER, "Discord webhook unexpected error (webhook: {})", maskWebhookUrl(), e);
             }
             return false;
         }
@@ -161,8 +173,8 @@ public class DiscordWebhookClient {
      */
     private boolean handleHttpResponse(HttpResponse<String> response) {
         if (response.statusCode() == 204 || response.statusCode() == 200) {
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("Discord webhook sent successfully (webhook: {})", maskWebhookUrl());
+            if (logger.isDebugEnabled()) {
+                logger.debug(ALERT_MARKER, "Discord webhook sent successfully (webhook: {})", maskWebhookUrl());
             }
             return true;
         }
@@ -170,16 +182,16 @@ public class DiscordWebhookClient {
         // SECURITY: Handle rate limiting (Discord limit: 30 requests/minute)
         if (response.statusCode() == 429) {
             String retryAfter = response.headers().firstValue("Retry-After").orElse("unknown");
-            if (LOGGER.isWarnEnabled()) {
-                LOGGER.warn("Discord webhook rate limited, retry after: {} seconds (webhook: {})", 
+            if (logger.isWarnEnabled()) {
+                logger.warn(ALERT_MARKER, "Discord webhook rate limited, retry after: {} seconds (webhook: {})", 
                         retryAfter, maskWebhookUrl());
             }
             return false;
         }
 
         // SECURITY: Don't log response body (may contain sensitive data)
-        if (LOGGER.isWarnEnabled()) {
-            LOGGER.warn("Discord webhook failed: HTTP {} (webhook: {})", 
+        if (logger.isWarnEnabled()) {
+            logger.warn(ALERT_MARKER, "Discord webhook failed: HTTP {} (webhook: {})", 
                     response.statusCode(), maskWebhookUrl());
         }
         return false;

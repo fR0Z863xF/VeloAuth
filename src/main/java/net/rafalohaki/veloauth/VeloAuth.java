@@ -1,10 +1,11 @@
 package net.rafalohaki.veloauth;
 
-import com.google.inject.Inject;
+import jakarta.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import net.rafalohaki.veloauth.cache.AuthCache;
@@ -18,44 +19,38 @@ import net.rafalohaki.veloauth.database.HikariConfigParams;
 import net.rafalohaki.veloauth.exception.VeloAuthException;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.listener.AuthListener;
-import net.rafalohaki.veloauth.listener.EarlyLoginBlocker;
-import net.rafalohaki.veloauth.listener.PreLoginHandler;
-import net.rafalohaki.veloauth.listener.PostLoginHandler;
+import net.rafalohaki.veloauth.listener.ListenerFactory;
 import net.rafalohaki.veloauth.premium.PremiumResolverService;
 import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 import org.bstats.velocity.Metrics;
 import org.slf4j.Logger;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * VeloAuth - Complete Velocity Authentication Plugin.
- * <p>
- * Manager autoryzacji na proxy Velocity, który zarządza przepuszczaniem graczy
- * między Velocity, PicoLimbo (mini serwer limbo) i serwerami backend.
- * <p>
- * Kluczowe cechy:
- * - Zarządzanie cache autoryzacji - zalogowani gracze omijają logowanie
- * - Transfer graczy via Velocity - Velocity steruje przepuszczaniem między serwerami
- * - Wszystkie operacje na proxy - /login, /register, /changepassword obsługiwane przez VeloAuth
- * - BCrypt hashing - bezpieczne przechowywanie haseł
- * - Wspólna baza danych - kompatybilna z LimboAuth
- * - Obsługa graczy premium i cracked
- * - Virtual Threads (Project Loom) - wydajne I/O
- * - Backend API - integracja z innymi pluginami
- * - Java 21 - najnowsze optymalizacje
+ * Velocity proxy authentication plugin.
+ * Manages player auth flows between Velocity, a configurable auth server, and backend servers.
  */
 @Plugin(
         id = "veloauth",
         name = "VeloAuth",
         version = BuildConstants.VERSION,
         description = "Complete Velocity Authentication Plugin with BCrypt, Virtual Threads and multi-database support",
-        authors = {"Rafal"}
+    authors = {"Rafal"},
+    dependencies = {
+        @Dependency(id = "floodgate", optional = true)
+    }
 )
 public class VeloAuth {
 
     private static final int BSTATS_PLUGIN_ID = 28142;
+    private static final long CLEANUP_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 5;
 
     private final ProxyServer server;
     private final Logger logger;
@@ -71,6 +66,8 @@ public class VeloAuth {
     private ConnectionManager connectionManager;
     private AuthListener authListener;
     private PremiumResolverService premiumResolverService;
+    private ScheduledExecutorService premiumCacheCleanupScheduler;
+    private ScheduledExecutorService premiumDbCleanupScheduler;
 
     // Status pluginu
     // CRITICAL: This flag protects against early connections during initialization
@@ -79,6 +76,11 @@ public class VeloAuth {
     // - Remains FALSE if initialization fails (prevents connections to broken plugin)
     // - Set to FALSE during shutdown to reject new operations
     private volatile boolean initialized = false;
+    private volatile boolean shutdownStarted = false;
+
+    // Startup queue: connections arriving during init wait on this future instead of getting kicked
+    private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
+    private final ReentrantLock lifecycleLock = new ReentrantLock();
 
     /**
      * Konstruktor VeloAuth.
@@ -113,7 +115,7 @@ public class VeloAuth {
             messages.reloadWithLanguage(newLanguage);
             logger.info("Language files reloaded successfully (language: {})", newLanguage);
             return true;
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.error("Failed to reload language files", e);
             return false;
         }
@@ -163,7 +165,7 @@ public class VeloAuth {
             logger.debug("Registering early PreLogin blocker for initialization protection...");
         }
         try {
-            EarlyLoginBlocker earlyBlocker = new EarlyLoginBlocker(this);
+            var earlyBlocker = ListenerFactory.createEarlyLoginBlocker(this);
             server.getEventManager().register(this, earlyBlocker);
             if (logger.isDebugEnabled()) {
                 logger.debug("✅ EarlyLoginBlocker registered BEFORE initialization - PreLogin protection active");
@@ -182,6 +184,7 @@ public class VeloAuth {
             logger.error("❌ VeloAuth initialization FAILED after {} ms", initializationDuration, throwable);
             // CRITICAL: Keep initialized flag as FALSE to prevent connections to broken plugin
             logger.warn("⚠️ Initialization flag remains FALSE - all player connections will be blocked");
+            initializationFuture.completeExceptionally(throwable);
             shutdown();
         } else {
             finalizeInitialization(initializationDuration);
@@ -200,8 +203,18 @@ public class VeloAuth {
         // Initialize bStats metrics
         metricsFactory.make(this, BSTATS_PLUGIN_ID);
 
-        // CRITICAL: Set initialized flag to TRUE only after ALL components are ready
-        initialized = true;
+        lifecycleLock.lock();
+        try {
+            if (shutdownStarted) {
+                logger.warn("Skipping initialization completion because shutdown already started");
+                return;
+            }
+
+            initialized = true;
+            initializationFuture.complete(null);
+        } finally {
+            lifecycleLock.unlock();
+        }
         
         logStartupInfo(initializationDuration);
     }
@@ -297,7 +310,7 @@ public class VeloAuth {
                 logger.debug("✅ Message system initialized in {} ms (Language: {}, External files: enabled)", 
                         System.currentTimeMillis() - startTime, language);
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.error("Failed to initialize external language files, falling back to JAR-embedded files", e);
             messages = new Messages();
             messages.setLanguage(language);
@@ -343,7 +356,7 @@ public class VeloAuth {
                     settings.getBruteForceMaxAttempts(),
                     settings.getBruteForceTimeoutMinutes(),
                     settings.getCacheCleanupIntervalMinutes(),
-                    settings.getMaxConcurrentSessions() // FIX: Add concurrent session limit
+                    settings.getSessionTimeoutMinutes()
                 ),
                 settings,
                 messages
@@ -353,6 +366,43 @@ public class VeloAuth {
         if (databaseManager != null) {
             databaseManager.setAuthCacheReference(authCache);
             logger.debug("AuthCache reference set in DatabaseManager");
+        }
+
+        // Schedule dedicated premium cache cleanup at the same interval as auth cache cleanup
+        int cleanupInterval = settings.getCacheCleanupIntervalMinutes();
+        if (cleanupInterval > 0) {
+            premiumCacheCleanupScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "VeloAuth-PremiumCacheCleanup");
+                t.setDaemon(true);
+                return t;
+            });
+            premiumCacheCleanupScheduler.scheduleAtFixedRate(
+                    authCache::cleanExpiredPremiumEntries,
+                    cleanupInterval,
+                    cleanupInterval,
+                    TimeUnit.MINUTES
+            );
+        }
+
+        // Schedule periodic cleanup of expired PREMIUM_UUIDS entries from the database
+        long premiumTtlMinutes = (long) settings.getPremiumTtlHours() * 60;
+        if (premiumTtlMinutes > 0 && databaseManager != null) {
+            premiumDbCleanupScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "VeloAuth-PremiumDbCleanup");
+                t.setDaemon(true);
+                return t;
+            });
+            premiumDbCleanupScheduler.scheduleAtFixedRate(() -> {
+                try {
+                    int cleaned = databaseManager.getPremiumUuidDao()
+                            .cleanExpiredEntries(premiumTtlMinutes);
+                    if (cleaned > 0) {
+                        logger.info("Cleaned {} expired premium UUID cache entries from database", cleaned);
+                    }
+                } catch (Exception e) {
+                    logger.error("Error during premium UUID DB cleanup", e);
+                }
+            }, 1, 1, TimeUnit.HOURS);
         }
         
         logger.debug("✅ Cache initialized in {} ms (TTL: {} min, Max size: {}, Premium cache: 10000)", 
@@ -404,12 +454,12 @@ public class VeloAuth {
         long startTime = System.currentTimeMillis();
         
         // CRITICAL: Create handlers BEFORE AuthListener
-        PreLoginHandler preLoginHandler = new PreLoginHandler(
-            authCache, premiumResolverService, databaseManager,
+        var preLoginHandler = ListenerFactory.createPreLoginHandler(
+            authCache, premiumResolverService, settings, databaseManager,
             messages, logger);
         logger.debug("PreLoginHandler created successfully");
         
-        PostLoginHandler postLoginHandler = new PostLoginHandler(
+        var postLoginHandler = ListenerFactory.createPostLoginHandler(
             authCache, databaseManager,
             messages, logger);
         logger.debug("PostLoginHandler created successfully");
@@ -420,10 +470,10 @@ public class VeloAuth {
             preLoginHandler, postLoginHandler, connectionManager, databaseManager, messages);
         
         server.getEventManager().register(this, authListener);
-        
-        // Register CommandBlockListener if feature is enabled
+
+        // v1.0.4+ Register CommandBlockListener if feature is enabled
         if (settings.isBlockCommandsBeforeAuth()) {
-            net.rafalohaki.veloauth.listener.CommandBlockListener commandBlockListener = 
+            net.rafalohaki.veloauth.listener.CommandBlockListener commandBlockListener =
                 new net.rafalohaki.veloauth.listener.CommandBlockListener(
                     authCache, settings, messages, logger);
             server.getEventManager().register(this, commandBlockListener);
@@ -431,8 +481,8 @@ public class VeloAuth {
         } else {
             logger.debug("CommandBlockListener not registered (block-commands-before-auth: disabled)");
         }
-        
-        logger.debug("✅ Event listeners registered in {} ms (PreLoginHandler + PostLoginHandler + AuthListener + CommandBlockListener)", 
+
+        logger.debug("✅ Event listeners registered in {} ms (PreLoginHandler + PostLoginHandler + AuthListener + CommandBlockListener)",
                 System.currentTimeMillis() - startTime);
     }
 
@@ -485,8 +535,20 @@ public class VeloAuth {
      * Zamyka wszystkie komponenty pluginu z graceful shutdown.
      */
     private void shutdown() {
-        // CRITICAL: Set initialized flag to FALSE immediately to reject new operations
-        initialized = false;
+        lifecycleLock.lock();
+        try {
+            if (shutdownStarted) {
+                logger.debug("Shutdown already in progress - skipping duplicate shutdown request");
+                return;
+            }
+
+            shutdownStarted = true;
+            initialized = false;
+            initializationFuture.completeExceptionally(new IllegalStateException("Plugin shutting down"));
+        } finally {
+            lifecycleLock.unlock();
+        }
+
         logger.info("🔴 Initialization flag set to FALSE - blocking all new player connections");
 
         try {
@@ -513,6 +575,14 @@ public class VeloAuth {
                 logger.debug("ConnectionManager zamknięty");
             }
 
+            shutdownCleanupScheduler(premiumCacheCleanupScheduler, "Premium cache cleanup scheduler");
+            shutdownCleanupScheduler(premiumDbCleanupScheduler, "Premium DB cleanup scheduler");
+
+            if (premiumResolverService != null) {
+                premiumResolverService.shutdown();
+                logger.debug("PremiumResolverService zamknięty");
+            }
+
             if (authCache != null) {
                 authCache.shutdown();
                 logger.debug("AuthCache zamknięty");
@@ -535,13 +605,39 @@ public class VeloAuth {
         }
     }
 
+    private void shutdownCleanupScheduler(ScheduledExecutorService scheduler, String schedulerName) {
+        if (scheduler == null) {
+            return;
+        }
+
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(CLEANUP_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                logger.warn("{} did not stop in time - forcing shutdown", schedulerName);
+                scheduler.shutdownNow();
+                if (!scheduler.awaitTermination(CLEANUP_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    logger.warn("{} still running after forced shutdown", schedulerName);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            scheduler.shutdownNow();
+            logger.warn("Interrupted while stopping {}", schedulerName, e);
+        }
+
+        logger.debug("{} zamknięty", schedulerName);
+    }
+
     private void logStartupInfo(long initializationDuration) {
         if (logger.isInfoEnabled()) {
-            logger.info("PicoLimbo server '{}' found at default configuration", settings.getPicoLimboServerName());
+            logger.info("Auth server '{}' configured", settings.getAuthServerName());
+            logger.info("Floodgate support: {} (prefix='{}', auth bypass={})",
+                    settings.isFloodgateIntegrationEnabled() ? "enabled" : "disabled",
+                    settings.getFloodgateUsernamePrefix(),
+                    settings.isFloodgateBypassAuthServerEnabled());
             
             String dbType = settings.getDatabaseStorageType();
             String language = settings.getLanguage();
-            // boolean bStats = true; // bStats jest zawsze inicjalizowane
             
             logger.info("Initialized in {} ms ({} database, {} language, bStats enabled)", 
                     initializationDuration, dbType, language);
@@ -570,6 +666,7 @@ public class VeloAuth {
                 if (logger.isInfoEnabled()) {
                     logger.info(messages.get("config.reloaded_success"));
                 }
+                logger.warn("Changes to database, auth-server, premium-resolver, and floodgate settings require a full server restart to take effect.");
                 logStartupInfo(0); // Pass 0 as duration for reload
                 return languageReloaded; // Return true only if both succeeded
             } else {
@@ -668,6 +765,16 @@ public class VeloAuth {
      */
     public boolean isInitialized() {
         return initialized;
+    }
+
+    /**
+     * Returns a future that completes when the plugin is fully initialized.
+     * Used by EarlyLoginBlocker to queue connections during startup.
+     *
+     * @return CompletableFuture that completes on successful initialization
+     */
+    public CompletableFuture<Void> getInitializationFuture() {
+        return initializationFuture.copy();
     }
 
     /**

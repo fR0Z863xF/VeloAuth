@@ -80,12 +80,12 @@ class VeloAuthIntegrationTest {
         messages.setLanguage("en");
         settings = new TestSettings(java.nio.file.Path.of(".test-settings"), true, "auth");
         authCache = new net.rafalohaki.veloauth.cache.AuthCache(
-                new net.rafalohaki.veloauth.cache.AuthCache.AuthCacheConfig(60, 10000, 1000, 10000, 5, 5, 1, 2),
+                new net.rafalohaki.veloauth.cache.AuthCache.AuthCacheConfig(60, 10000, 1000, 10000, 5, 5, 1, 60),
                 settings, messages
         );
 
         // Fix CommandManager mocking - properly chain builder pattern
-        com.velocitypowered.api.command.CommandMeta.Builder metaBuilder = mock(com.velocitypowered.api.command.CommandMeta.Builder.class);
+        var metaBuilder = mock(com.velocitypowered.api.command.CommandMeta.Builder.class);
         when(metaBuilder.aliases(any(String[].class))).thenReturn(metaBuilder);
         when(metaBuilder.build()).thenReturn(mock(com.velocitypowered.api.command.CommandMeta.class));
         when(commandManager.metaBuilder(anyString())).thenReturn(metaBuilder);
@@ -119,16 +119,26 @@ class VeloAuthIntegrationTest {
 
     @Test
     void testLoginCommand_throughPublicAPI_shouldHandleDatabaseFailure() {
-        // Setup: Mock command execution through CommandManager
-        when(commandManager.metaBuilder(LOGIN_COMMAND)).thenReturn(mock(com.velocitypowered.api.command.CommandMeta.Builder.class));
-        when(commandManager.metaBuilder(LOGIN_COMMAND).aliases("log", "l")).thenReturn(mock(com.velocitypowered.api.command.CommandMeta.Builder.class));
-        when(commandManager.metaBuilder(LOGIN_COMMAND).aliases("log", "l").build()).thenReturn(mock(com.velocitypowered.api.command.CommandMeta.class));
-
         // Register commands
         commandHandler.registerCommands();
 
         // Verify registration doesn't throw exceptions
         assertDoesNotThrow(() -> commandHandler.registerCommands());
+    }
+
+    @Test
+    void testCommandUnregistration_allAliasesAreUnregistered() {
+        commandHandler.unregisterCommands();
+
+        verify(commandManager, times(8)).unregister(anyString());
+        verify(commandManager).unregister("login");
+        verify(commandManager).unregister("log");
+        verify(commandManager).unregister("l");
+        verify(commandManager).unregister("register");
+        verify(commandManager).unregister("reg");
+        verify(commandManager).unregister("changepassword");
+        verify(commandManager).unregister("unregister");
+        verify(commandManager).unregister("vauth");
     }
 
     @Test
@@ -259,10 +269,25 @@ class VeloAuthIntegrationTest {
         // Should access configuration without exceptions
         assertDoesNotThrow(() -> {
             boolean debugEnabled = settings.isDebugEnabled();
-            String picoLimboServer = settings.getPicoLimboServerName();
+            String authServerName = settings.getAuthServerName();
 
             assertTrue(debugEnabled, "Debug setting should be accessible");
-            assertEquals("auth", picoLimboServer, "PicoLimbo server should be configurable");
+            assertEquals("auth", authServerName, "Auth server should be configurable");
         });
+    }
+
+    @Test
+    void testFinalizeInitialization_shutdownStarted_shouldNotMarkPluginInitialized() throws Exception {
+        java.lang.reflect.Field shutdownField = VeloAuth.class.getDeclaredField("shutdownStarted");
+        shutdownField.setAccessible(true);
+        shutdownField.set(plugin, true);
+
+        java.lang.reflect.Method finalizeMethod = VeloAuth.class.getDeclaredMethod("finalizeInitialization", long.class);
+        finalizeMethod.setAccessible(true);
+
+        assertDoesNotThrow(() -> finalizeMethod.invoke(plugin, 25L));
+        assertFalse(plugin.isInitialized(), "Initialization must not flip back to ready after shutdown started");
+        assertFalse(plugin.getInitializationFuture().isDone(),
+                "Initialization future should not complete normally after shutdown has started");
     }
 }

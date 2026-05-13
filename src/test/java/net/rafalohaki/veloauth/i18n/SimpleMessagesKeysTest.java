@@ -3,7 +3,7 @@ package net.rafalohaki.veloauth.i18n;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,8 +12,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,7 +27,14 @@ class SimpleMessagesKeysTest {
 
     private Properties englishProps;
     private Properties polishProps;
-    private Properties chineseProps;
+
+    private static Stream<String> builtInLanguages() {
+        return Arrays.stream(BuiltInLanguages.codes());
+    }
+
+    private static Stream<String> nonEnglishBuiltInLanguages() {
+        return builtInLanguages().filter(language -> !BuiltInLanguages.englishCode().equals(language));
+    }
 
     /**
      * All translation keys used by SimpleMessages class.
@@ -45,13 +54,14 @@ class SimpleMessagesKeysTest {
             "auth.changepassword.success",
             "auth.changepassword.incorrect_old_password",
             "auth.register.passwords_no_match",
+            "register.ip_limit_reached",
+            "auth.command.in_progress",
             // Admin unregister
             "admin.unregister.usage",
             // Error messages
             "error.database.query",
             "error.unknown_command",
             "error.unknown",
-            "error.connection.generic",
             // Security messages
             "security.brute_force.blocked",
             // Player conflict messages
@@ -77,11 +87,13 @@ class SimpleMessagesKeysTest {
             "connection.error.auth_connect",
             "connection.error.game_server",
             "connection.error.no_servers",
+            "connection.waiting_for_server",
             "connection.connecting",
             "connection.retry",
             "connection.commands.registered",
             "connection.manager.initialized",
             "connection.listener.registered",
+            "connection.already_connecting",
             "connection.servers.available",
             "connection.picolimbo.server",
             "connection.picolimbo.found",
@@ -104,6 +116,7 @@ class SimpleMessagesKeysTest {
             "admin.help.cache",
             "admin.help.stats",
             "admin.help.conflicts",
+            "admin.unknown_command",
             // Admin reload messages
             "admin.reload.success",
             "admin.reload.failed",
@@ -119,6 +132,8 @@ class SimpleMessagesKeysTest {
             // Premium check status
             "premium.check_disabled",
             "premium.check_enabled",
+            // Command helper messages
+            "auth.registration.timeout",
             // Admin cache/stats messages
             "admin.cache_reset.success",
             "admin.cache_reset.player",
@@ -232,6 +247,8 @@ class SimpleMessagesKeysTest {
             // Security messages (additional)
             "security.session.hijack",
             "security.session.ip.mismatch",
+            "security.name_snipe.denied",
+            "security.api_failure.denied",
             // New security features (v1.0.4+)
             "auth.concurrent_session_limit",
             "auth.rate_limit_prelogin",
@@ -261,7 +278,6 @@ class SimpleMessagesKeysTest {
     void setUp() throws IOException {
         englishProps = loadProperties("messages_en.properties");
         polishProps = loadProperties("messages_pl.properties");
-        chineseProps = loadProperties("messages_zh.properties");
     }
 
     private Properties loadProperties(String filename) throws IOException {
@@ -300,18 +316,6 @@ class SimpleMessagesKeysTest {
     }
 
     @Test
-    void allRequiredKeys_existInChineseFile() {
-        StringBuilder missing = new StringBuilder();
-        for (String key : REQUIRED_KEYS) {
-            if (!chineseProps.containsKey(key)) {
-                missing.append("\n  - ").append(key);
-            }
-        }
-        assertTrue(missing.isEmpty(), 
-                "Missing keys in messages_zh.properties:" + missing);
-    }
-
-    @Test
     void englishAndPolish_haveConsistentKeys() {
         // Check for keys in English but not in Polish
         StringBuilder englishOnly = new StringBuilder();
@@ -341,55 +345,18 @@ class SimpleMessagesKeysTest {
     }
 
     @Test
-    void allLanguageFiles_haveConsistentKeys() {
-        // Check consistency across EN, PL, and ZH
-        StringBuilder inconsistencies = new StringBuilder();
-        
-        // Check EN vs ZH
-        for (String key : englishProps.stringPropertyNames()) {
-            if (!chineseProps.containsKey(key)) {
-                inconsistencies.append("\n  - EN has but ZH missing: ").append(key);
-            }
-        }
-        for (String key : chineseProps.stringPropertyNames()) {
-            if (!englishProps.containsKey(key)) {
-                inconsistencies.append("\n  - ZH has but EN missing: ").append(key);
-            }
-        }
-        
-        // Check PL vs ZH
-        for (String key : polishProps.stringPropertyNames()) {
-            if (!chineseProps.containsKey(key)) {
-                inconsistencies.append("\n  - PL has but ZH missing: ").append(key);
-            }
-        }
-        for (String key : chineseProps.stringPropertyNames()) {
-            if (!polishProps.containsKey(key)) {
-                inconsistencies.append("\n  - ZH has but PL missing: ").append(key);
-            }
-        }
-        
-        assertTrue(inconsistencies.isEmpty(), 
-                "Language files have inconsistent keys:" + inconsistencies);
-    }
-
-    @Test
     void allValues_areNotEmpty() {
         StringBuilder emptyValues = new StringBuilder();
         
         for (String key : REQUIRED_KEYS) {
             String enValue = englishProps.getProperty(key);
             String plValue = polishProps.getProperty(key);
-            String zhValue = chineseProps.getProperty(key);
             
             if (enValue != null && enValue.trim().isEmpty()) {
                 emptyValues.append("\n  - EN: ").append(key);
             }
             if (plValue != null && plValue.trim().isEmpty()) {
                 emptyValues.append("\n  - PL: ").append(key);
-            }
-            if (zhValue != null && zhValue.trim().isEmpty()) {
-                emptyValues.append("\n  - ZH: ").append(key);
             }
         }
         
@@ -398,7 +365,18 @@ class SimpleMessagesKeysTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"en", "pl", "zh"})
+    @MethodSource("builtInLanguages")
+    void builtInLanguages_doNotContainDeprecatedKeys(String language) throws IOException {
+        Properties languageProps = loadProperties("messages_" + language + ".properties");
+
+        assertFalse(languageProps.containsKey("auth.register.password_too_short"),
+                "Deprecated key auth.register.password_too_short should not exist in " + language);
+        assertFalse(languageProps.containsKey("error.connection.generic"),
+                "Deprecated key error.connection.generic should not exist in " + language);
+    }
+
+    @ParameterizedTest
+    @MethodSource("builtInLanguages")
     void messagesClass_canLoadAllRequiredKeys(String language) {
         Messages messages = new Messages();
         messages.setLanguage(language);
@@ -421,21 +399,54 @@ class SimpleMessagesKeysTest {
         // Check that all keys in properties files are documented in REQUIRED_KEYS
         // This ensures no unused/orphan keys exist in properties files
         StringBuilder unused = new StringBuilder();
-        
-        for (String key : englishProps.stringPropertyNames()) {
-            if (!REQUIRED_KEYS.contains(key)) {
-                unused.append("\n  - EN: ").append(key);
+
+        for (String language : BuiltInLanguages.codes()) {
+            Properties props;
+            try {
+                props = loadProperties("messages_" + language + ".properties");
+            } catch (IOException e) {
+                throw new AssertionError("Failed to load properties for language: " + language, e);
+            }
+
+            for (String key : props.stringPropertyNames()) {
+                if (!REQUIRED_KEYS.contains(key)) {
+                    unused.append("\n  - ").append(language.toUpperCase()).append(": ").append(key);
+                }
             }
         }
-        
-        for (String key : polishProps.stringPropertyNames()) {
-            if (!REQUIRED_KEYS.contains(key)) {
-                unused.append("\n  - PL: ").append(key);
-            }
-        }
-        
+
         assertTrue(unused.isEmpty(), 
                 "Properties contain keys not in REQUIRED_KEYS (potential unused keys):" + unused);
+    }
+
+    @ParameterizedTest
+    @MethodSource("nonEnglishBuiltInLanguages")
+    void builtInLanguages_haveConsistentKeysWithEnglish(String language) throws IOException {
+        Properties languageProps = loadProperties("messages_" + language + ".properties");
+
+        StringBuilder englishOnly = new StringBuilder();
+        for (String key : englishProps.stringPropertyNames()) {
+            if (!languageProps.containsKey(key)) {
+                englishOnly.append("\n  - ").append(key);
+            }
+        }
+
+        StringBuilder languageOnly = new StringBuilder();
+        for (String key : languageProps.stringPropertyNames()) {
+            if (!englishProps.containsKey(key)) {
+                languageOnly.append("\n  - ").append(key);
+            }
+        }
+
+        StringBuilder message = new StringBuilder();
+        if (!englishOnly.isEmpty()) {
+            message.append("\nKeys in EN but not in ").append(language).append(':').append(englishOnly);
+        }
+        if (!languageOnly.isEmpty()) {
+            message.append("\nKeys in ").append(language).append(" but not in EN:").append(languageOnly);
+        }
+
+        assertTrue(message.isEmpty(), "Language files have inconsistent keys:" + message);
     }
 
     @Test

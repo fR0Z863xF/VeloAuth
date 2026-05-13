@@ -49,16 +49,40 @@ public class PremiumResolverService {
                     rs.isWpmeEnabled());
         }
 
-        int timeoutMs = Math.max(100, rs.getRequestTimeoutMs());
-        List<PremiumResolver> resolverList = new ArrayList<>();
-        resolverList.add(new ConfigurablePremiumResolver(logger, rs.isMojangEnabled(), timeoutMs, ResolverConfig.MOJANG));
-        resolverList.add(new ConfigurablePremiumResolver(logger, rs.isAshconEnabled(), timeoutMs, ResolverConfig.ASHCON));
-        resolverList.add(new ConfigurablePremiumResolver(logger, rs.isWpmeEnabled(), timeoutMs, ResolverConfig.WPME));
-        this.resolvers = Collections.unmodifiableList(resolverList);
+        this.resolvers = createDefaultResolvers(logger, rs);
 
         this.premiumTtlMillis = Math.max(0L, rs.getHitTtlMinutes()) * 60_000L;
         this.missTtlMillis = Math.max(0L, rs.getMissTtlMinutes()) * 60_000L;
         this.maxCacheSize = 10_000;
+
+        if (premiumTtlMillis == 0 && logger.isWarnEnabled()) {
+            logger.warn("[PremiumResolver] hitTtlMinutes = 0 — premium cache disabled, every login will query API!");
+        }
+        if (missTtlMillis == 0 && logger.isWarnEnabled()) {
+            logger.warn("[PremiumResolver] missTtlMinutes = 0 — miss cache disabled, every unknown player will query API!");
+        }
+    }
+
+    PremiumResolverService(Logger logger,
+                           PremiumUuidDao premiumUuidDao,
+                           List<PremiumResolver> resolvers,
+                           long premiumTtlMillis,
+                           long missTtlMillis) {
+        this.logger = Objects.requireNonNull(logger, "logger");
+        this.dao = Objects.requireNonNull(premiumUuidDao, "premiumUuidDao");
+        this.resolvers = List.copyOf(Objects.requireNonNull(resolvers, "resolvers"));
+        this.premiumTtlMillis = Math.max(0L, premiumTtlMillis);
+        this.missTtlMillis = Math.max(0L, missTtlMillis);
+        this.maxCacheSize = 10_000;
+    }
+
+    private static List<PremiumResolver> createDefaultResolvers(Logger logger, PremiumResolverSettings settings) {
+        int timeoutMs = Math.max(100, settings.getRequestTimeoutMs());
+        List<PremiumResolver> resolverList = new ArrayList<>();
+        resolverList.add(new ConfigurablePremiumResolver(logger, settings.isMojangEnabled(), timeoutMs, ResolverConfig.MOJANG));
+        resolverList.add(new ConfigurablePremiumResolver(logger, settings.isAshconEnabled(), timeoutMs, ResolverConfig.ASHCON));
+        resolverList.add(new ConfigurablePremiumResolver(logger, settings.isWpmeEnabled(), timeoutMs, ResolverConfig.WPME));
+        return Collections.unmodifiableList(resolverList);
     }
 
     /**
@@ -108,21 +132,23 @@ public class PremiumResolverService {
     private ResolverResults executeResolversInParallel(List<PremiumResolver> enabledResolvers, String trimmed) {
         AtomicReference<PremiumResolution> premiumResult = new AtomicReference<>();
         AtomicReference<PremiumResolution> offlineCandidate = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger unknownCount = new java.util.concurrent.atomic.AtomicInteger(0);
 
         List<CompletableFuture<PremiumResolution>> futures = enabledResolvers.stream()
-                .map(resolver -> createResolverFuture(resolver, trimmed, premiumResult, offlineCandidate))
+                .map(resolver -> createResolverFuture(resolver, trimmed, premiumResult, offlineCandidate, unknownCount))
                 .toList();
 
         awaitResolverFutures(futures);
-        return new ResolverResults(premiumResult.get(), offlineCandidate.get());
+        return new ResolverResults(premiumResult.get(), offlineCandidate.get(), unknownCount.get() > 0);
     }
 
     private CompletableFuture<PremiumResolution> createResolverFuture(
             PremiumResolver resolver, String trimmed,
             AtomicReference<PremiumResolution> premiumResult,
-            AtomicReference<PremiumResolution> offlineCandidate) {
+            AtomicReference<PremiumResolution> offlineCandidate,
+            java.util.concurrent.atomic.AtomicInteger unknownCount) {
         return CompletableFuture.supplyAsync(
-                () -> executeResolver(resolver, trimmed, premiumResult, offlineCandidate),
+                () -> executeResolver(resolver, trimmed, premiumResult, offlineCandidate, unknownCount),
                 net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider.getVirtualExecutor()
         );
     }
@@ -130,11 +156,12 @@ public class PremiumResolverService {
     private PremiumResolution executeResolver(
             PremiumResolver resolver, String trimmed,
             AtomicReference<PremiumResolution> premiumResult,
-            AtomicReference<PremiumResolution> offlineCandidate) {
+            AtomicReference<PremiumResolution> offlineCandidate,
+            java.util.concurrent.atomic.AtomicInteger unknownCount) {
         try {
             PremiumResolution rawResolution = resolver.resolve(trimmed);
             PremiumResolution resolution = normalizeResolution(resolver, rawResolution, trimmed);
-            categorizeResolution(resolver, resolution, trimmed, premiumResult, offlineCandidate);
+            categorizeResolution(resolver, resolution, trimmed, premiumResult, offlineCandidate, unknownCount);
             return resolution;
         } catch (Exception e) {
             logResolverFailure(resolver, trimmed, e);
@@ -145,15 +172,19 @@ public class PremiumResolverService {
     private void categorizeResolution(
             PremiumResolver resolver, PremiumResolution resolution, String trimmed,
             AtomicReference<PremiumResolution> premiumResult,
-            AtomicReference<PremiumResolution> offlineCandidate) {
+            AtomicReference<PremiumResolution> offlineCandidate,
+            java.util.concurrent.atomic.AtomicInteger unknownCount) {
         if (resolution.isPremium()) {
             premiumResult.compareAndSet(null, resolution);
             logResolutionResult(resolver, trimmed, "PREMIUM");
         } else if (resolution.isOffline()) {
             offlineCandidate.compareAndSet(null, resolution);
             logResolutionResult(resolver, trimmed, "OFFLINE");
-        } else if (logger.isDebugEnabled()) {
-            logger.debug("[PARALLEL] {} returned UNKNOWN for {}: {}", resolver.id(), trimmed, resolution.message());
+        } else {
+            unknownCount.incrementAndGet();
+            if (logger.isDebugEnabled()) {
+                logger.debug("[PARALLEL] {} returned UNKNOWN for {}: {}", resolver.id(), trimmed, resolution.message());
+            }
         }
     }
 
@@ -192,8 +223,15 @@ public class PremiumResolverService {
         }
 
         if (results.offline() != null) {
+            // At least one resolver explicitly confirmed "player not found" (API responded correctly).
+            // Trust that result — UNKNOWN from other resolvers means timeout/rate-limit/error,
+            // NOT that the player might be premium. A premium player would be found by at least
+            // one working resolver. Blocking offline players due to API failures is too strict.
+            if (results.hasUnknown() && logger.isDebugEnabled()) {
+                logger.debug("[PARALLEL] OFFLINE confirmed for {} (some resolvers returned unknown, but at least one confirmed offline)", trimmed);
+            }
             if (logger.isDebugEnabled()) {
-                logger.debug("[PARALLEL] All resolvers returned offline for {}", trimmed);
+                logger.debug("[PARALLEL] Player {} resolved as offline", trimmed);
             }
             return results.offline();
         }
@@ -204,7 +242,7 @@ public class PremiumResolverService {
         return PremiumResolution.unknown(RESOLVER_SERVICE, "all resolvers failed");
     }
 
-    private record ResolverResults(PremiumResolution premium, PremiumResolution offline) {}
+    private record ResolverResults(PremiumResolution premium, PremiumResolution offline, boolean hasUnknown) {}
 
     /**
      * Saves premium resolution to database cache.
@@ -303,7 +341,7 @@ public class PremiumResolverService {
             return null;
         }
         if (entry.isExpired(premiumTtlMillis, missTtlMillis)) {
-            cache.remove(key);
+            cache.remove(key, entry);
             return null;
         }
         return entry.resolution();
@@ -337,6 +375,18 @@ public class PremiumResolverService {
             cache.put(key, new CachedEntry(resolution, System.currentTimeMillis()));
         } finally {
             cacheSizeLock.unlock();
+        }
+    }
+
+    /**
+     * Clears the in-memory premium resolution cache and releases resources.
+     * Must be called during plugin shutdown before DatabaseManager is closed.
+     */
+    public void shutdown() {
+        int size = cache.size();
+        cache.clear();
+        if (logger.isDebugEnabled()) {
+            logger.debug("[PremiumResolver] Shutdown complete — cleared {} cached entries", size);
         }
     }
 

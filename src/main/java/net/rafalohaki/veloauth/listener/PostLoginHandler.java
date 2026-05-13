@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import java.util.Optional;
 import java.util.UUID;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Handles post-login routing and conflict resolution logic.
  * Extracted from AuthListener to reduce complexity and improve testability.
@@ -33,14 +35,14 @@ public class PostLoginHandler {
      * @param messages          i18n message system
      * @param logger            Logger instance
      */
-    public PostLoginHandler(AuthCache authCache,
+    PostLoginHandler(AuthCache authCache,
                            DatabaseManager databaseManager,
                            Messages messages,
                            Logger logger) {
-        this.authCache = authCache;
-        this.databaseManager = databaseManager;
-        this.messages = messages;
-        this.logger = logger;
+        this.authCache = requireNonNull(authCache, "authCache");
+        this.databaseManager = requireNonNull(databaseManager, "databaseManager");
+        this.messages = requireNonNull(messages, "messages");
+        this.logger = requireNonNull(logger, "logger");
     }
 
     /**
@@ -54,7 +56,7 @@ public class PostLoginHandler {
      */
     public void handlePremiumPlayer(Player player, String playerIp) {
         if (logger.isInfoEnabled()) {
-            logger.info(messages.get("player.premium.verified", player.getUsername()));
+            logger.info("Premium player {} verified", player.getUsername());
         }
 
         UUID playerUuid = player.getUniqueId();
@@ -130,16 +132,16 @@ public class PostLoginHandler {
         }
 
         // Premium player is now authorized in cache
-        // ServerPreConnectEvent will redirect to PicoLimbo automatically
+        // ServerPreConnectEvent will redirect to auth server automatically
         // Then onServerConnected will trigger auto-transfer to backend
         if (logger.isDebugEnabled()) {
-            logger.debug("Premium player {} authorized - ServerPreConnectEvent will route to PicoLimbo", 
+            logger.debug("Premium player {} authorized - ServerPreConnectEvent will route to auth server", 
                     player.getUsername());
         }
     }
 
     /**
-     * Handles offline player post-login (authorization check or PicoLimbo transfer).
+     * Handles offline player post-login (authorization check or auth server transfer).
      *
      * @param player   The offline player
      * @param playerIp Player's IP address
@@ -147,17 +149,17 @@ public class PostLoginHandler {
     public void handleOfflinePlayer(Player player, String playerIp) {
         if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
             if (logger.isDebugEnabled()) {
-                logger.debug("\u2705 Gracz {} jest już autoryzowany - ServerPreConnectEvent przekieruje na backend",
+                logger.debug("Player {} is already authorized - ServerPreConnectEvent will route to backend",
                         player.getUsername());
             }
             return;
         }
 
         if (logger.isDebugEnabled()) {
-            logger.debug("Gracz {} nie jest autoryzowany - ServerPreConnectEvent przekieruje na PicoLimbo", 
+            logger.debug("Player {} is not authorized - ServerPreConnectEvent will route to auth server",
                     player.getUsername());
         }
-        // ServerPreConnectEvent will redirect to PicoLimbo automatically
+        // ServerPreConnectEvent will redirect to auth server automatically
     }
 
     /**
@@ -191,15 +193,24 @@ public class PostLoginHandler {
      * @return true if player is in conflict mode and is premium
      */
     public boolean shouldShowConflictMessage(Player player) {
-        RegisteredPlayer registeredPlayer = databaseManager.findPlayerWithRuntimeDetection(player.getUsername())
-                .join().getValue();
-        
-        if (registeredPlayer == null || !registeredPlayer.getConflictMode()) {
+        try {
+            var dbResult = databaseManager.findPlayerWithRuntimeDetection(player.getUsername()).join();
+            if (dbResult == null || dbResult.isDatabaseError()) {
+                logger.debug("Cannot check conflict message for {} - DB error", player.getUsername());
+                return false;
+            }
+
+            RegisteredPlayer registeredPlayer = dbResult.getValue();
+            if (registeredPlayer == null || !registeredPlayer.getConflictMode()) {
+                return false;
+            }
+
+            return Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
+                    .map(PremiumCacheEntry::isPremium)
+                    .orElse(false);
+        } catch (java.util.concurrent.CompletionException e) {
+            logger.error("Database error checking conflict message for {}", player.getUsername(), e);
             return false;
         }
-
-        return Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
-                .map(PremiumCacheEntry::isPremium)
-                .orElse(false);
     }
 }

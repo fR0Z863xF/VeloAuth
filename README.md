@@ -6,34 +6,39 @@
 
 [![Modrinth](https://img.shields.io/badge/Modrinth-00AF5C?style=for-the-badge&logo=modrinth&logoColor=white)](https://modrinth.com/plugin/veloauth) 
 [![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/e2RkPbc3ZR)
-[![SpigotMC](https://img.shields.io/badge/SpigotMC-VeloAuth-orange?style=for-the-badge&logo=spigotmc&logoColor=white)](https://www.spigotmc.org/resources/veloauth.130240/)
 [![License](https://img.shields.io/github/license/rafalohaki/veloauth?style=for-the-badge)](LICENSE)
+[![bStats](https://img.shields.io/badge/bStats-Tracked-blue?style=for-the-badge)](https://bstats.org/plugin/velocity/VeloAuth)
 
 **Complete Velocity authentication plugin** with intelligent nickname protection, premium auto-login, and secure offline player management.
 
 ## What is VeloAuth?
 
-VeloAuth is a comprehensive authentication system for Velocity proxy that handles all player authorization before they reach your backend servers. It works seamlessly with PicoLimbo to provide a smooth login experience while protecting nickname ownership through intelligent conflict resolution.
+VeloAuth is a comprehensive authentication system for Velocity proxy that handles all player authorization before they reach your backend servers. It works with any limbo server to provide a smooth login experience while protecting nickname ownership through intelligent conflict resolution.
 
 ## Key Features
 
 - 🔒 **Intelligent Nickname Protection** - Premium nicknames are reserved unless already registered by cracked players
-- ⚡ **Premium Auto-Login** - Mojang account owners skip authentication automatically  
+- ⚡ **Premium Auto-Login** - Mojang account owners skip authentication automatically
+- 🔄 **Automatic Nickname Change Detection** - Detects when a premium player renames their Mojang account and updates the database record automatically
 - 🛡️ **Secure Offline Auth** - BCrypt password hashing with brute-force protection
-- 🚀 **High Performance** - Authorization cache with 24-hour premium status caching
+- 📱 **Optional Floodgate Support** - Bedrock players can bypass the auth server when Floodgate integration is enabled
+- 🗺️ **Forced Hosts Support** - Players connect via custom domains (e.g., `pvp.server.com`) and are properly routed to their intended server *after* authentication
+- 🚫 **Smart Command Hiding** - Authentication commands (`/login`, `/register`) are completely hidden from tab-completion once the player is logged in
+- 🚀 **High Performance** - Three-layer premium resolution cache: in-memory → database → external API, with 24-hour premium status retention
 - 🔄 **Conflict Resolution** - Smart handling of premium/cracked nickname conflicts
 - 📊 **Admin Tools** - Complete conflict management with `/vauth conflicts`
 - 🗄️ **Multi-Database** - MySQL, PostgreSQL, H2, SQLite
-- 🌍 **9 Languages** - EN, PL, DE, FR, RU, TR, SI, FI, ZH(SC)
+- 🌍 **17 Languages** - EN, PL, DE, FR, RU, TR, SI, FI, ZH_CN, ZH_HK, JA, HI, VI, KO, TH, ID, PT_BR
 - 🔄 **LimboAuth Compatible** - 100% database compatibility (no migration needed)
 - 📢 **Discord Alerts** - Webhook notifications for security events
 - 🧵 **Virtual Threads** - Built on Java 21 for maximum performance
+- 📈 **bStats Analytics** - Anonymous usage statistics via bStats
 
 ## Requirements
 
 - **Java 21 or newer**
 - **Velocity proxy** (API 3.4.0+)
-- **PicoLimbo** or other limbo/lobby server
+- **Limbo server**: NanoLimbo, LOOHP/Limbo, LimboService, PicoLimbo, hpfxd/Limbo, or any other
 - **Database**: MySQL, PostgreSQL, H2, or SQLite
 
 ## Quick Setup
@@ -43,27 +48,81 @@ VeloAuth is a comprehensive authentication system for Velocity proxy that handle
 1. Download VeloAuth from Modrinth
 2. Place the file in your Velocity `plugins/` folder
 3. Start Velocity - the plugin will create a `config.yml` file
-4. Stop Velocity and configure your database and limbo name in `plugins/VeloAuth/config.yml` 
+4. Stop Velocity and configure your database and auth server name in `plugins/VeloAuth/config.yml`
 5. Restart Velocity
+
+**Note:** Floodgate support is disabled by default. Enable it only if you actually use Geyser/Floodgate.
 
 ### Velocity Config
 
-Configure your `velocity.toml` with PicoLimbo and backend servers:
+Configure your `velocity.toml` with your limbo/auth server and backend servers:
 
 ```toml
 [servers]
-limbo = "127.0.0.1:25566"  # PicoLimbo (auth server)
-lobby = "127.0.0.1:25565"  # Backend server
-survival = "127.0.0.1:25567" # Backend server nr2
+limbo = "127.0.0.1:25566"  # Auth/limbo server (NanoLimbo, LOOHP/Limbo, etc.)
+lobby = "127.0.0.1:25565"  # Typical backend server
+survival = "127.0.0.1:25567" # Another backend server
 
-try = ["lobby", "survival"]  # Order matters for auth redirect, no limbo in order needed
+try = ["lobby", "survival"]  # Order matters. Do NOT put 'limbo' here.
+
+[forced-hosts]
+# VeloAuth fully respects Velocity's forced hosts! 
+# Players connecting via this IP will be sent to limbo to login, 
+# and then seamlessly transferred to 'survival' instead of 'lobby'.
+"survival.example.com" = ["survival"] 
 ```
 
-**Important:** The `try` configuration controls where authenticated players are redirected. VeloAuth automatically skips the `limbo` server and selects the first available backend server.
+**Important:** The `try` configuration controls where authenticated players are redirected by default. VeloAuth automatically skips the `limbo` server and selects the first available backend server, **unless** the player used a `forced-host` domain, in which case they are natively routed to their intended destination!
+
+### VeloAuth Config
+
+Minimal auth server configuration in `plugins/VeloAuth/config.yml`:
+
+```yaml
+language: en
+# Built-in language codes: "en", "pl", "si", "ru", "tr", "fr", "de", "fi", "zh_cn", "zh_hk", "ja", "hi", "vi", "ko", "th", "id", "pt_br"
+
+auth-server:
+  server-name: limbo
+  timeout-seconds: 300
+```
+
+Built-in language codes you can copy directly into config:
+
+| Code | Language |
+|------|----------|
+| `en` | English |
+| `pl` | Polish |
+| `si` | Slovenian |
+| `ru` | Russian |
+| `tr` | Turkish |
+| `fr` | French |
+| `de` | German |
+| `fi` | Finnish |
+| `zh_cn` | Chinese Simplified |
+| `zh_hk` | Chinese Traditional (Hong Kong) |
+| `ja` | Japanese |
+| `hi` | Hindi |
+| `vi` | Vietnamese |
+| `ko` | Korean |
+| `th` | Thai |
+| `id` | Indonesian |
+| `pt_br` | Brazilian Portuguese |
+
+Optional Floodgate integration:
+
+```yaml
+floodgate:
+  enabled: true
+  username-prefix: "."
+  bypass-auth-server: true
+```
+
+Keep the Floodgate prefix aligned with your proxy-side Floodgate configuration.
 
 ### Discord Webhooks
 
-VeloAuth supports Discord notifications for security events. See [Discord Setup Guide](docs/DISCORD_WEBHOOK_SETUP.md).
+VeloAuth supports Discord notifications for security events (failed login bursts, brute-force attempts, premium resolution failures). Configure the webhook URL in `config.yml` under `alerts.discord`.
 
 ### Database Config
 
@@ -73,8 +132,8 @@ Supported: H2 (out-of-box), MySQL, PostgreSQL, SQLite
 
 | Command | Description | Restrictions |
 |---------|-------------|--------------|
-| `/register <password> <confirm>` | Create new account | Cannot use premium nicknames |
-| `/login <password>` | Login to your account | Works for premium/cracked players |
+| `/register <password> <confirm>` | Create new account | Hidden after login. No premium nicknames |
+| `/login <password>` | Login to your account | Hidden after login. Works for all players |
 | `/changepassword <old> <new>` | Change your password | Must be logged in |
 
 ## Admin Commands
@@ -91,12 +150,23 @@ Supported: H2 (out-of-box), MySQL, PostgreSQL, SQLite
 
 ### Authentication Flow
 1. **Player connects** to Velocity
-2. **VeloAuth checks** authorization cache
-3. If **not cached**, player is sent to **PicoLimbo**
-4. **Nickname protection** activates during registration
-5. Player types **/login** or **/register**
-6. **VeloAuth verifies** credentials with BCrypt
-7. Player is **redirected to backend server** via `try` configuration
+2. **VeloAuth checks** in-memory authorization cache (instant, no I/O)
+3. If **not in memory**, checks **database premium cache** (persistent across restarts)
+4. If **not in DB cache**, resolves via **Mojang/Ashcon API** in parallel using virtual threads
+5. If **not premium**, player is sent to the **auth server** (unless Floodgate Bedrock bypass applies)
+6. Player types **/login** or **/register**
+7. **VeloAuth verifies** credentials with BCrypt
+8. Player is **redirected to backend server** via `try` configuration
+
+### Premium Resolution (3 layers)
+```
+Connect → [In-memory cache] → [Database cache] → [Mojang/Ashcon API]
+              ~0ms                ~1ms                 ~200-500ms
+```
+All API calls run in parallel on virtual threads. Results are cached in the database and survive proxy restarts.
+
+### Nickname Change Detection
+When a premium player logs in with a different username than what is stored (Mojang account rename), VeloAuth automatically detects the mismatch and updates the database record, keeping the UUID-to-username mapping accurate without any admin intervention.
 
 ### Nickname Protection System
 - **Premium nicknames are reserved** unless already registered by cracked players
@@ -113,15 +183,16 @@ VeloAuth is **100% compatible** with LimboAuth databases:
 3. Configure VeloAuth to use the same database as LimboAuth
 4. Start Velocity - all existing accounts will work automatically
 
-## Support
-
-Need help? Found a bug? Open an issue on GitHub or join our Discord server.
-
-
 ## Contributing
 
 Contributions are welcome! Please open an issue or PR.
 
+## Support
+
+Need help? Found a bug? Open an issue on GitHub or join our Discord server.
+
 ## License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 

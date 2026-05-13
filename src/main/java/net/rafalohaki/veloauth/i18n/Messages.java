@@ -14,9 +14,6 @@ import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 /**
  * Internationalization manager for VeloAuth messages.
  * Thread-safe message loading and formatting with support for external language files.
@@ -24,21 +21,23 @@ import java.util.regex.Pattern;
 public class Messages {
 
     private static final Logger logger = LoggerFactory.getLogger(Messages.class);
+    private static final Map<String, String> DEPRECATED_KEY_ALIASES = Map.of(
+            "auth.register.password_too_short", "validation.password.too_short",
+            "error.connection.generic", "connection.error.generic"
+    );
 
     // Cache for loaded message files (legacy support)
     private static final Map<String, Properties> messageCache = new ConcurrentHashMap<>();
+    private static final Map<String, String> normalizedPatternCache = new ConcurrentHashMap<>();
 
     // Current language
-    private String currentLanguage = "en";
+    private String currentLanguage;
     
     // Language file manager for external files
     private final LanguageFileManager languageFileManager;
     
     // Current resource bundle
     private ResourceBundle bundle;
-    
-    // Compiled pattern for finding placeholders like {0} or {12}
-    private static final Pattern MESSAGE_FORMAT_PATTERN = Pattern.compile("\\{\\d+}");
     
     private final boolean useExternalFiles;
 
@@ -171,10 +170,11 @@ public class Messages {
      * @return Formatted message or the key if not found
      */
     public String get(String key, Object... args) {
+        String resolvedKey = resolveMessageKey(key);
         if (useExternalFiles) {
-            return getFromBundle(key, args);
+            return getFromBundle(resolvedKey, args);
         } else {
-            return getForLanguage(currentLanguage, key, args);
+            return getForLanguage(currentLanguage, resolvedKey, args);
         }
     }
 
@@ -187,37 +187,28 @@ public class Messages {
      * @return Formatted message or the key if not found
      */
     public String getForLanguage(String language, String key, Object... args) {
+        String resolvedKey = resolveMessageKey(key);
         Properties messages = loadMessages(language);
-        String message = messages.getProperty(key);
+        String message = messages.getProperty(resolvedKey);
 
         if (message == null) {
-            logger.debug("Message key '{}' not found for language '{}', falling back to English", key, language);
+            logger.debug("Message key '{}' not found for language '{}', falling back to English",
+                    resolvedKey, language);
             // Fallback to English if key not found in current language
             if (!"en".equals(language)) {
                 Properties englishMessages = loadMessages("en");
-                message = englishMessages.getProperty(key);
+                message = englishMessages.getProperty(resolvedKey);
             }
 
             // If still not found, return the key itself
             if (message == null) {
-                logger.warn("Message key '{}' not found in any language file", key);
-                message = key;
+                logger.warn("Message key '{}' not found in any language file", resolvedKey);
+                message = resolvedKey;
             }
         }
 
         // Format message with arguments if provided
-        if (args.length > 0) {
-            try {
-                return MessageFormat.format(message, args);
-            } catch (IllegalArgumentException e) {
-                if (logger.isWarnEnabled()) {
-                    logger.warn("Failed to format message '{}': {}", key, e.getMessage());
-                }
-                return message;
-            }
-        }
-
-        return message;
+        return formatMessageSafely(message, resolvedKey, args);
     }
     
     /**
@@ -229,12 +220,13 @@ public class Messages {
      * @return Formatted message or fallback if not found
      */
     private String getFromBundle(String key, Object... args) {
+        String resolvedKey = resolveMessageKey(key);
         try {
-            String message = bundle.getString(key);
-            return formatMessageSafely(message, key, args);
+            String message = bundle.getString(resolvedKey);
+            return formatMessageSafely(message, resolvedKey, args);
         } catch (MissingResourceException e) {
-            logger.warn("Missing translation key: {}", key);
-            return "Missing: " + key;
+            logger.warn("Missing translation key: {}", resolvedKey);
+            return "Missing: " + resolvedKey;
         }
     }
     
@@ -244,29 +236,85 @@ public class Messages {
         }
 
         try {
-            // Support both MessageFormat style ({0}, {1}) and lightweight '{}' style used in some translations.
-            // If '{}' tokens are present but no numeric indices, convert '{}' -> {0}, {1}, ... for MessageFormat.
-            String formattedMessage = message;
-            // Prevent ReDoS by using compiled pattern and avoiding greedy .* matches
-            if (message.contains("{}") && !MESSAGE_FORMAT_PATTERN.matcher(message).find()) {
-                StringBuilder sb = new StringBuilder();
-                int start = 0;
-                int index = 0;
-                int pos;
-                while ((pos = message.indexOf("{}", start)) >= 0) {
-                    sb.append(message, start, pos);
-                    sb.append('{').append(index++).append('}');
-                    start = pos + 2;
-                }
-                sb.append(message.substring(start));
-                formattedMessage = sb.toString();
-            }
-
-            return MessageFormat.format(formattedMessage, args);
+            return MessageFormat.format(normalizeMessagePattern(message), args);
         } catch (IllegalArgumentException e) {
             logger.warn("Failed to format message '{}': {}", key, e.getMessage());
             return message;
         }
+    }
+
+    private String normalizeMessagePattern(String message) {
+        if (message.indexOf('{') < 0 && message.indexOf('\'') < 0) {
+            return message;
+        }
+        return normalizedPatternCache.computeIfAbsent(message, Messages::normalizeMessageFormatPattern);
+    }
+
+    private static String normalizeMessageFormatPattern(String message) {
+        return escapeMessageFormatApostrophes(convertBracePlaceholders(message));
+    }
+
+    private static String convertBracePlaceholders(String message) {
+        if (message.indexOf("{}") < 0 || containsIndexedPlaceholders(message)) {
+            return message;
+        }
+
+        StringBuilder sb = new StringBuilder(message.length() + 8);
+        int start = 0;
+        int index = 0;
+        int pos;
+        while ((pos = message.indexOf("{}", start)) >= 0) {
+            sb.append(message, start, pos);
+            sb.append('{').append(index++).append('}');
+            start = pos + 2;
+        }
+        sb.append(message.substring(start));
+        return sb.toString();
+    }
+
+    private static String escapeMessageFormatApostrophes(String message) {
+        if (message.indexOf('\'') < 0) {
+            return message;
+        }
+
+        StringBuilder sb = new StringBuilder(message.length() + 8);
+        for (int index = 0; index < message.length(); index++) {
+            char character = message.charAt(index);
+            if (character != '\'') {
+                sb.append(character);
+                continue;
+            }
+
+            if (index + 1 < message.length() && message.charAt(index + 1) == '\'') {
+                sb.append("''");
+                index++;
+                continue;
+            }
+
+            sb.append("''");
+        }
+        return sb.toString();
+    }
+
+    private static boolean containsIndexedPlaceholders(String message) {
+        for (int index = 0; index < message.length() - 2; index++) {
+            if (message.charAt(index) != '{' || !Character.isDigit(message.charAt(index + 1))) {
+                continue;
+            }
+
+            int end = index + 2;
+            while (end < message.length() && Character.isDigit(message.charAt(end))) {
+                end++;
+            }
+            if (end < message.length() && message.charAt(end) == '}') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String resolveMessageKey(String key) {
+        return DEPRECATED_KEY_ALIASES.getOrDefault(key, key);
     }
 
     /**
@@ -292,19 +340,19 @@ public class Messages {
             }
         } else {
             // Legacy mode: check JAR resources (built-in languages only)
-            return "en".equals(lang) || "pl".equals(lang);
+            return BuiltInLanguages.isBuiltIn(lang);
         }
     }
 
     /**
      * Gets all supported language codes.
-     * Returns built-in languages (en, pl) - users can add custom languages by placing
+    * Returns built-in languages bundled with the plugin. Users can still add custom languages by placing
      * messages_*.properties files in the lang directory.
      *
      * @return Array of built-in language codes
      */
     public String[] getSupportedLanguages() {
-        return new String[]{"en", "pl"};
+        return BuiltInLanguages.codes();
     }
 
     /**
@@ -314,6 +362,7 @@ public class Messages {
     public void clearCache() {
         int sizeBefore = messageCache.size();
         messageCache.clear();
+        normalizedPatternCache.clear();
         if (sizeBefore > 0) {
             logger.info("Message cache cleared ({} entries removed)", sizeBefore);
         }
@@ -347,7 +396,7 @@ public class Messages {
             } else {
                 logger.error("Could not find language file: {}", fileName);
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.error("Error loading language file: {}", fileName, e);
         }
 
